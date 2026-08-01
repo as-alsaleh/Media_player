@@ -29,4 +29,5 @@ targets:
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Connects to your media server on the local network."
         SWIFT_VERSION: "5.9"
         CODE_SIGNING_ALLOWED: "NO"
+        "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
         LIBRARY_SEARCH_PATHS: "$(inherited)"

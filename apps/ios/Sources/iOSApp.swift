@@ -47,7 +47,8 @@ struct ConnectView: View {
     @AppStorage("server") private var server = ""
     @AppStorage("share") private var share = ""
     @AppStorage("username") private var username = ""
-    @State private var password = ""
+    // Dev convenience: prefill via `simctl launch --setenv MEDIAPLAYER_PASSWORD=…`
+    @State private var password = ProcessInfo.processInfo.environment["MEDIAPLAYER_PASSWORD"] ?? ""
     @State private var connecting = false
 
     var body: some View {
