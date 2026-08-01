@@ -10,11 +10,22 @@ struct PlayerSettingsView: View {
     @State private var speed: Double = 1.0
     @State private var subScale: Double = 1.0
     @State private var subDelay: Double = 0
+    @State private var subPos: Double = 100
+    @State private var subColor = "White"
+    @State private var subBold = false
+    @State private var subBackground = false
     @State private var audioDelay: Double = 0
     @State private var boost = false
     @State private var chapters: [MPVPlayer.Chapter] = []
 
     private let speeds: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+
+    private let subColors: [(name: String, value: String, swatch: Color)] = [
+        ("White", "#FFFFFFFF", .white),
+        ("Yellow", "#FFFFEE00", .yellow),
+        ("Cyan", "#FF00E5FF", .cyan),
+        ("Green", "#FF00E676", .green),
+    ]
 
     var body: some View {
         ScrollView {
@@ -34,8 +45,43 @@ struct PlayerSettingsView: View {
                     labeledSlider("Size", value: $subScale, range: 0.5...2.0, suffix: "×") {
                         player.setDouble("sub-scale", subScale)
                     }
+                    labeledSlider("Height", value: $subPos, range: 30...100, suffix: "") {
+                        player.setDouble("sub-pos", subPos)
+                    }
                     stepperRow("Subtitle Sync", value: $subDelay, step: 0.5, unit: "s") {
                         player.setDouble("sub-delay", subDelay)
+                    }
+
+                    // Style
+                    HStack(spacing: 6) {
+                        Text("Color").font(.system(size: 12.5))
+                        Spacer()
+                        ForEach(subColors, id: \.name) { c in
+                            Button {
+                                subColor = c.name
+                                player.setString("sub-color", c.value)
+                            } label: {
+                                Circle()
+                                    .fill(c.swatch)
+                                    .frame(width: 18, height: 18)
+                                    .overlay(Circle().stroke(
+                                        subColor == c.name ? .white : .white.opacity(0.2),
+                                        lineWidth: subColor == c.name ? 2 : 1))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    Toggle(isOn: $subBold) {
+                        Text("Bold").font(.system(size: 12.5))
+                    }
+                    .onChange(of: subBold) {
+                        player.setString("sub-bold", subBold ? "yes" : "no")
+                    }
+                    Toggle(isOn: $subBackground) {
+                        Text("Background box").font(.system(size: 12.5))
+                    }
+                    .onChange(of: subBackground) {
+                        player.setString("sub-back-color", subBackground ? "#C0000000" : "#00000000")
                     }
                 }
 
@@ -89,6 +135,8 @@ struct PlayerSettingsView: View {
             let scale = player.getDouble("sub-scale")
             subScale = scale > 0 ? scale : 1.0
             subDelay = player.getDouble("sub-delay")
+            let pos = player.getDouble("sub-pos")
+            subPos = pos > 0 ? pos : 100
             audioDelay = player.getDouble("audio-delay")
             chapters = player.chapters()
         }

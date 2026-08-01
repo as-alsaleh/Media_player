@@ -30,7 +30,6 @@ struct ContentView: View {
     @State private var markers: [StreamerManager.PlexMarker] = []
     @State private var controlsVisible = true
     @State private var hideWork: DispatchWorkItem?
-    @State private var showSettings = false
     @State private var showSettingsBottom = false
     @State private var volumeLevel: Double = 100
     /// Hover position over the timeline: x in slider space, target time,
@@ -142,19 +141,6 @@ struct ContentView: View {
                         .font(.system(size: 16, weight: .semibold))
                         .lineLimit(1)
                     Spacer()
-                    Button {
-                        showSettings.toggle()
-                        pokeControls()
-                    } label: {
-                        Image(systemName: "gearshape.fill")
-                            .font(.system(size: 15))
-                            .frame(width: 34, height: 34)
-                            .background(.white.opacity(0.15), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .popover(isPresented: $showSettings, arrowEdge: .bottom) {
-                        PlayerSettingsView(player: player)
-                    }
                 }
                 .padding(.horizontal, 22)
                 .padding(.top, 16)
