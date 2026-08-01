@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Package the SwiftPM-built executable into MediaPlayer.app.
 set -euo pipefail
+export PATH="$HOME/.cargo/bin:$PATH"
 cd "$(dirname "$0")/../apps/macos"
 
 CONFIG="${1:-debug}"

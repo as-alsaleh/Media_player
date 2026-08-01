@@ -104,6 +104,16 @@ final class StreamerManager: ObservableObject {
         let size: UInt64
         let poster_url: String?
         let overview: String?
+        let backdrop_url: String?
+    }
+
+    struct LibraryShow: Codable, Identifiable, Hashable {
+        let name: String
+        let episode_count: UInt32
+        let poster_url: String?
+        let backdrop_url: String?
+        let overview: String?
+        var id: String { name }
     }
 
     struct LibraryEpisode: Codable, Identifiable, Hashable {
@@ -139,6 +149,10 @@ final class StreamerManager: ObservableObject {
 
     func libraryEpisodes() async throws -> [LibraryEpisode] {
         try await getJSON("library/episodes")
+    }
+
+    func libraryShows() async throws -> [LibraryShow] {
+        try await getJSON("library/shows")
     }
 
     func streamURL(path: String) -> URL? {

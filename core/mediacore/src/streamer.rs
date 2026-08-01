@@ -55,6 +55,7 @@ impl Streamer {
             .route("/library/scan", get(library_scan))
             .route("/library/movies", get(library_movies))
             .route("/library/episodes", get(library_episodes))
+            .route("/library/shows", get(library_shows))
             .with_state(self.state);
         let listener =
             tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port))).await?;
@@ -91,7 +92,7 @@ async fn library_scan(
     match index.scan(&st.fs, movies_root, tv_root).await {
         Ok((m, e)) => {
             let enriched = match &st.tmdb_key {
-                Some(key) => crate::tmdb::enrich_movies(&index, key).await,
+                Some(key) => crate::tmdb::enrich(&index, key).await,
                 None => 0,
             };
             Json(serde_json::json!({"movies": m, "episodes": e, "enriched": enriched}))
@@ -111,6 +112,14 @@ async fn library_movies(State(st): State<AppState>) -> Response {
 
 async fn library_episodes(State(st): State<AppState>) -> Response {
     match st.index.as_ref().map(|i| i.episodes()) {
+        Some(Ok(rows)) => Json(rows).into_response(),
+        Some(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        None => (StatusCode::NOT_IMPLEMENTED, "no index configured").into_response(),
+    }
+}
+
+async fn library_shows(State(st): State<AppState>) -> Response {
+    match st.index.as_ref().map(|i| i.shows()) {
         Some(Ok(rows)) => Json(rows).into_response(),
         Some(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
         None => (StatusCode::NOT_IMPLEMENTED, "no index configured").into_response(),

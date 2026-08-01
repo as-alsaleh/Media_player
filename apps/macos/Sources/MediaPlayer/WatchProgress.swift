@@ -13,6 +13,11 @@ enum WatchProgress {
         all[path]
     }
 
+    /// All saved resume points (path → seconds).
+    static func allPositions() -> [String: Double] {
+        all
+    }
+
     static func save(path: String, position: Double, duration: Double) {
         guard duration > 0 else { return }
         var dict = all
