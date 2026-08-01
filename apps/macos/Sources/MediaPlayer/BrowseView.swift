@@ -1,16 +1,26 @@
 import SwiftUI
 
-/// Netflix-style home: hero banner + horizontal carousels on a dark canvas.
+let canvasColor = Color(red: 0.078, green: 0.078, blue: 0.086)
+
+/// Netflix-style home: fixed top nav, cinematic hero, carousels.
 struct BrowseView: View {
     @ObservedObject var streamer: StreamerManager
     /// Reloads the library whenever this changes (e.g. after playback ends).
     var refreshTick: Int = 0
     let onPlay: (URL, String, String, Double?) -> Void   // url, title, progress key, resume secs
 
+    enum Tab: String, CaseIterable {
+        case home = "Home"
+        case movies = "Movies"
+        case shows = "TV Shows"
+    }
+
+    @State private var tab: Tab = .home
     @State private var movies: [StreamerManager.LibraryMovie] = []
     @State private var shows: [StreamerManager.LibraryShow] = []
     @State private var episodes: [StreamerManager.LibraryEpisode] = []
     @State private var selectedShow: StreamerManager.LibraryShow?
+    @State private var selectedMovie: StreamerManager.LibraryMovie?
     @State private var scanning = false
     @State private var showFiles = false
     @State private var plexUsers: [StreamerManager.PlexUser] = []
@@ -19,43 +29,20 @@ struct BrowseView: View {
     @AppStorage("plexActiveUserName") private var activeUserName = ""
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Color(red: 0.08, green: 0.08, blue: 0.09).ignoresSafeArea()
+        ZStack(alignment: .top) {
+            canvasColor.ignoresSafeArea()
 
             if movies.isEmpty && shows.isEmpty {
                 emptyState
             } else {
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 28) {
-                        hero
-                        if !continueWatching.isEmpty {
-                            carousel("Continue Watching", items: continueWatching)
-                        }
-                        carousel("Movies", items: movies.map(CardItem.movie))
-                        showCarousel
-                        Spacer(minLength: 30)
-                    }
-                }
+                content
             }
 
-            toolbar
+            navBar
         }
         .task(id: "\(streamer.baseURL?.absoluteString ?? "")|\(refreshTick)") {
             await load()
             plexUsers = (try? await streamer.plexUsers()) ?? []
-        }
-        .alert("PIN for \(pinPromptUser?.title ?? "")", isPresented: .init(
-            get: { pinPromptUser != nil },
-            set: { if !$0 { pinPromptUser = nil } })
-        ) {
-            SecureField("PIN", text: $pinInput)
-            Button("Switch") {
-                if let user = pinPromptUser {
-                    Task { await doSwitch(user, pin: pinInput) }
-                }
-                pinInput = ""
-            }
-            Button("Cancel", role: .cancel) { pinInput = "" }
         }
         .sheet(item: $selectedShow) { show in
             ShowDetailSheet(
@@ -63,6 +50,9 @@ struct BrowseView: View {
                 episodes: episodes.filter { $0.show == show.name },
                 streamer: streamer,
                 onPlay: onPlay)
+        }
+        .sheet(item: $selectedMovie) { movie in
+            MovieDetailSheet(movie: movie, streamer: streamer, onPlay: onPlay)
         }
         .sheet(isPresented: $showFiles) {
             VStack(spacing: 0) {
@@ -80,13 +70,42 @@ struct BrowseView: View {
             }
             .frame(width: 480, height: 560)
         }
+        .alert("PIN for \(pinPromptUser?.title ?? "")", isPresented: .init(
+            get: { pinPromptUser != nil },
+            set: { if !$0 { pinPromptUser = nil } })
+        ) {
+            SecureField("PIN", text: $pinInput)
+            Button("Switch") {
+                if let user = pinPromptUser {
+                    Task { await doSwitch(user, pin: pinInput) }
+                }
+                pinInput = ""
+            }
+            Button("Cancel", role: .cancel) { pinInput = "" }
+        }
         .preferredColorScheme(.dark)
     }
 
-    // MARK: - Pieces
+    // MARK: - Navigation bar
 
-    private var toolbar: some View {
-        HStack(spacing: 10) {
+    private var navBar: some View {
+        HStack(spacing: 22) {
+            Text("MEDIAPLAYER")
+                .font(.system(size: 17, weight: .black))
+                .foregroundStyle(Color(red: 0.9, green: 0.15, blue: 0.13))
+                .kerning(1.5)
+
+            ForEach(Tab.allCases, id: \.self) { t in
+                Button(t.rawValue) {
+                    withAnimation(.easeOut(duration: 0.2)) { tab = t }
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 13.5, weight: tab == t ? .bold : .regular))
+                .foregroundStyle(tab == t ? .white : .white.opacity(0.65))
+            }
+
+            Spacer()
+
             if scanning { ProgressView().controlSize(.small) }
             if !plexUsers.isEmpty {
                 Menu {
@@ -103,80 +122,147 @@ struct BrowseView: View {
                     }
                 } label: {
                     Label(activeUserName.isEmpty ? "User" : activeUserName,
-                          systemImage: "person.crop.circle")
+                          systemImage: "person.crop.circle.fill")
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
             }
-            Button {
-                Task { await rescan() }
-            } label: {
+            Button { Task { await rescan() } } label: {
                 Image(systemName: "arrow.clockwise")
             }
+            .buttonStyle(.plain)
             .help("Rescan library")
-            Button {
-                showFiles = true
-            } label: {
+            Button { showFiles = true } label: {
                 Image(systemName: "folder")
             }
+            .buttonStyle(.plain)
             .help("Browse files")
         }
-        .buttonStyle(.plain)
-        .font(.title3)
-        .foregroundStyle(.white.opacity(0.8))
-        .padding(14)
+        .font(.system(size: 14))
+        .foregroundStyle(.white.opacity(0.85))
+        .padding(.horizontal, 48)
+        .padding(.vertical, 14)
+        .background(
+            LinearGradient(colors: [.black.opacity(0.75), .clear], startPoint: .top, endPoint: .bottom)
+        )
+    }
+
+    // MARK: - Content
+
+    @ViewBuilder
+    private var content: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            switch tab {
+            case .home: homeContent
+            case .movies: gridContent(items: movies.map(CardItem.movie))
+            case .shows: showGrid
+            }
+        }
+    }
+
+    private var homeContent: some View {
+        VStack(alignment: .leading, spacing: 34) {
+            hero
+            if !continueWatching.isEmpty {
+                continueRow
+            }
+            carousel("Movies", items: movies.map(CardItem.movie))
+            showCarousel
+            Spacer(minLength: 40)
+        }
     }
 
     private var featured: StreamerManager.LibraryMovie? {
-        movies.filter { $0.backdrop_url != nil }
+        movies.filter { $0.backdrop_url != nil && !$0.watched }
             .max { ($0.year ?? 0) < ($1.year ?? 0) }
+            ?? movies.first { $0.backdrop_url != nil }
     }
 
     @ViewBuilder
     private var hero: some View {
         if let movie = featured {
             ZStack(alignment: .bottomLeading) {
-                AsyncImage(url: movie.backdrop_url.flatMap(URL.init)) { image in
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Rectangle().fill(.black)
+                GeometryReader { geo in
+                    AsyncImage(url: movie.backdrop_url.flatMap(URL.init)) { image in
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    } placeholder: {
+                        Rectangle().fill(.black)
+                    }
+                    .frame(width: geo.size.width, height: 480)
+                    .clipped()
                 }
-                .frame(height: 380)
-                .frame(maxWidth: .infinity)
-                .clipped()
+                .frame(height: 480)
 
                 LinearGradient(
-                    colors: [.clear, .clear, Color(red: 0.08, green: 0.08, blue: 0.09)],
+                    stops: [
+                        .init(color: .clear, location: 0.0),
+                        .init(color: .clear, location: 0.45),
+                        .init(color: canvasColor.opacity(0.85), location: 0.85),
+                        .init(color: canvasColor, location: 1.0),
+                    ],
                     startPoint: .top, endPoint: .bottom)
+                LinearGradient(
+                    colors: [.black.opacity(0.6), .clear],
+                    startPoint: .leading, endPoint: .trailing)
 
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 14) {
                     Text(movie.title)
-                        .font(.system(size: 42, weight: .heavy))
-                        .shadow(radius: 8)
+                        .font(.system(size: 54, weight: .black))
+                        .shadow(color: .black.opacity(0.8), radius: 10)
+                    HStack(spacing: 10) {
+                        if let year = movie.year {
+                            Text(String(year))
+                        }
+                        if let dur = movie.duration_secs {
+                            Text("\(Int(dur) / 60) min")
+                        }
+                        Text(movie.source == "plex" ? "PLEX" : "SMB")
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 5).padding(.vertical, 1.5)
+                            .overlay(RoundedRectangle(cornerRadius: 3).stroke(.white.opacity(0.5), lineWidth: 1))
+                    }
+                    .font(.callout)
+                    .foregroundStyle(.white.opacity(0.85))
                     if let overview = movie.overview {
                         Text(overview)
-                            .font(.callout)
+                            .font(.system(size: 14.5))
                             .lineLimit(3)
-                            .frame(maxWidth: 520, alignment: .leading)
-                            .foregroundStyle(.white.opacity(0.85))
-                            .shadow(radius: 4)
+                            .frame(maxWidth: 540, alignment: .leading)
+                            .foregroundStyle(.white.opacity(0.9))
+                            .shadow(color: .black.opacity(0.8), radius: 5)
                     }
-                    Button {
-                        play(movie)
-                    } label: {
-                        Label("Play", systemImage: "play.fill")
-                            .font(.headline)
-                            .padding(.horizontal, 26)
-                            .padding(.vertical, 10)
-                            .background(.white, in: RoundedRectangle(cornerRadius: 6))
-                            .foregroundStyle(.black)
+                    HStack(spacing: 10) {
+                        Button {
+                            play(movie)
+                        } label: {
+                            Label(movie.view_offset_secs != nil ? "Resume" : "Play",
+                                  systemImage: "play.fill")
+                                .font(.system(size: 15, weight: .bold))
+                                .padding(.horizontal, 28).padding(.vertical, 11)
+                                .background(.white, in: RoundedRectangle(cornerRadius: 5))
+                                .foregroundStyle(.black)
+                        }
+                        .buttonStyle(.plain)
+                        Button {
+                            selectedMovie = movie
+                        } label: {
+                            Label("More Info", systemImage: "info.circle")
+                                .font(.system(size: 15, weight: .semibold))
+                                .padding(.horizontal, 22).padding(.vertical, 11)
+                                .background(.white.opacity(0.25), in: RoundedRectangle(cornerRadius: 5))
+                                .foregroundStyle(.white)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+                    .padding(.top, 4)
                 }
-                .padding(28)
+                .padding(.horizontal, 48)
+                .padding(.bottom, 26)
             }
         }
     }
+
+    // MARK: - Cards & rows
 
     enum CardItem: Identifiable {
         case movie(StreamerManager.LibraryMovie)
@@ -184,8 +270,8 @@ struct BrowseView: View {
 
         var id: String {
             switch self {
-            case .movie(let m): return "m\(m.id)"
-            case .episode(let e, _): return "e\(e.id)"
+            case .movie(let m): return m.uid
+            case .episode(let e, _): return e.uid
             }
         }
 
@@ -196,17 +282,32 @@ struct BrowseView: View {
             }
         }
 
+        var backdropOrPoster: String? {
+            switch self {
+            case .movie(let m): return m.backdrop_url ?? m.poster_url
+            case .episode(_, let p): return p
+            }
+        }
+
         var label: String {
             switch self {
             case .movie(let m): return m.title
+            case .episode(let e, _): return "\(e.show) S\(e.season)E\(e.episode)"
+            }
+        }
+
+        var progress: Double? {
+            switch self {
+            case .movie(let m):
+                guard let o = m.view_offset_secs, let d = m.duration_secs, d > 0 else { return nil }
+                return o / d
             case .episode(let e, _):
-                return "\(e.show) S\(e.season)E\(e.episode)"
+                guard let o = e.view_offset_secs, let d = e.duration_secs, d > 0 else { return nil }
+                return o / d
             }
         }
     }
 
-    /// Server-driven: Plex viewOffsets are the source of truth, ordered by
-    /// most recently watched. Local-only items fall back to the local store.
     private var continueWatching: [CardItem] {
         let positions = WatchProgress.allPositions()
         let posterByShow = Dictionary(shows.map { ($0.name, $0.poster_url) }) { a, _ in a }
@@ -229,45 +330,85 @@ struct BrowseView: View {
         return entries.sorted { $0.0 > $1.0 }.map(\.1)
     }
 
-    private func carousel(_ title: String, items: [CardItem]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.title3.bold())
-                .padding(.horizontal, 28)
+    /// Landscape cards with progress bars, like Netflix's Continue Watching.
+    private var continueRow: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Continue Watching")
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
+                    ForEach(continueWatching) { item in
+                        ContinueCard(item: item) { tapped(item) }
+                    }
+                }
+                .padding(.horizontal, 48)
+                .padding(.vertical, 8)
+            }
+        }
+    }
+
+    private func carousel(_ title: String, items: [CardItem]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader(title)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
                     ForEach(items) { item in
-                        PosterCard(posterURL: item.poster, label: item.label) {
-                            switch item {
-                            case .movie(let m): play(m)
-                            case .episode(let e, _): play(e)
-                            }
+                        PosterCard(posterURL: item.poster, label: item.label,
+                                   progress: item.progress) {
+                            tappedInfo(item)
                         }
                     }
                 }
-                .padding(.horizontal, 28)
+                .padding(.horizontal, 48)
                 .padding(.vertical, 10)
             }
         }
     }
 
     private var showCarousel: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("TV Shows")
-                .font(.title3.bold())
-                .padding(.horizontal, 28)
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("TV Shows")
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
                     ForEach(shows) { show in
-                        PosterCard(posterURL: show.poster_url, label: show.name) {
+                        PosterCard(posterURL: show.poster_url, label: show.name, progress: nil) {
                             selectedShow = show
                         }
                     }
                 }
-                .padding(.horizontal, 28)
+                .padding(.horizontal, 48)
                 .padding(.vertical, 10)
             }
         }
+    }
+
+    private func gridContent(items: [CardItem]) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 14)], spacing: 22) {
+            ForEach(items) { item in
+                PosterCard(posterURL: item.poster, label: item.label, progress: item.progress) {
+                    tappedInfo(item)
+                }
+            }
+        }
+        .padding(.horizontal, 48)
+        .padding(.top, 70)
+    }
+
+    private var showGrid: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 14)], spacing: 22) {
+            ForEach(shows) { show in
+                PosterCard(posterURL: show.poster_url, label: show.name, progress: nil) {
+                    selectedShow = show
+                }
+            }
+        }
+        .padding(.horizontal, 48)
+        .padding(.top, 70)
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 21, weight: .bold))
+            .padding(.horizontal, 48)
     }
 
     private var emptyState: some View {
@@ -285,6 +426,20 @@ struct BrowseView: View {
     }
 
     // MARK: - Actions
+
+    private func tapped(_ item: CardItem) {
+        switch item {
+        case .movie(let m): play(m)
+        case .episode(let e, _): play(e)
+        }
+    }
+
+    private func tappedInfo(_ item: CardItem) {
+        switch item {
+        case .movie(let m): selectedMovie = m
+        case .episode(let e, _): play(e)
+        }
+    }
 
     private func play(_ movie: StreamerManager.LibraryMovie) {
         if let url = streamer.resolveStream(movie.stream_url) {
@@ -305,13 +460,6 @@ struct BrowseView: View {
         return raw.hasPrefix("/stream/") ? String(raw.dropFirst("/stream/".count)) : raw
     }
 
-    private func load() async {
-        guard streamer.baseURL != nil else { return }
-        movies = (try? await streamer.libraryMovies()) ?? []
-        shows = (try? await streamer.libraryShows()) ?? []
-        episodes = (try? await streamer.libraryEpisodes()) ?? []
-    }
-
     private func switchTo(_ user: StreamerManager.PlexUser) {
         if user.protected {
             pinPromptUser = user
@@ -326,6 +474,13 @@ struct BrowseView: View {
         }
     }
 
+    private func load() async {
+        guard streamer.baseURL != nil else { return }
+        movies = (try? await streamer.libraryMovies()) ?? []
+        shows = (try? await streamer.libraryShows()) ?? []
+        episodes = (try? await streamer.libraryEpisodes()) ?? []
+    }
+
     private func rescan() async {
         scanning = true
         defer { scanning = false }
@@ -334,10 +489,13 @@ struct BrowseView: View {
     }
 }
 
-/// Poster with Netflix-style hover pop.
+// MARK: - Cards
+
+/// Portrait poster with hover pop, optional progress bar.
 struct PosterCard: View {
     let posterURL: String?
     let label: String
+    let progress: Double?
     let action: () -> Void
 
     @State private var hovering = false
@@ -345,29 +503,239 @@ struct PosterCard: View {
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 6) {
-                AsyncImage(url: posterURL.flatMap(URL.init)) { image in
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    ZStack {
-                        Rectangle().fill(.white.opacity(0.06))
-                        Image(systemName: "film").font(.title).foregroundStyle(.secondary)
+                ZStack(alignment: .bottom) {
+                    AsyncImage(url: posterURL.flatMap(URL.init)) { image in
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    } placeholder: {
+                        ZStack {
+                            Rectangle().fill(.white.opacity(0.06))
+                            Image(systemName: "film").font(.title).foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(width: 152, height: 228)
+                    .clipped()
+
+                    if let progress {
+                        progressBar(progress)
                     }
                 }
-                .frame(width: 148, height: 222)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .shadow(color: .black.opacity(hovering ? 0.7 : 0.3), radius: hovering ? 14 : 5, y: 4)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(.white.opacity(hovering ? 0.7 : 0), lineWidth: 2))
+                .shadow(color: .black.opacity(hovering ? 0.8 : 0.35),
+                        radius: hovering ? 16 : 5, y: 5)
 
                 Text(label)
-                    .font(.caption)
+                    .font(.system(size: 12))
                     .lineLimit(1)
-                    .frame(width: 148, alignment: .leading)
-                    .foregroundStyle(.white.opacity(0.75))
+                    .frame(width: 152, alignment: .leading)
+                    .foregroundStyle(.white.opacity(hovering ? 1 : 0.7))
             }
-            .scaleEffect(hovering ? 1.07 : 1.0)
-            .animation(.spring(duration: 0.25), value: hovering)
+            .scaleEffect(hovering ? 1.08 : 1.0)
+            .animation(.spring(duration: 0.22), value: hovering)
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
+    }
+
+    private func progressBar(_ fraction: Double) -> some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Rectangle().fill(.white.opacity(0.25))
+                Rectangle()
+                    .fill(Color(red: 0.9, green: 0.15, blue: 0.13))
+                    .frame(width: geo.size.width * min(max(fraction, 0), 1))
+            }
+        }
+        .frame(height: 3.5)
+    }
+}
+
+/// Landscape Continue-Watching card with a red progress bar and play glyph.
+struct ContinueCard: View {
+    let item: BrowseView.CardItem
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 6) {
+                ZStack {
+                    AsyncImage(url: item.backdropOrPoster.flatMap(URL.init)) { image in
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    } placeholder: {
+                        Rectangle().fill(.white.opacity(0.06))
+                    }
+                    .frame(width: 290, height: 163)
+                    .clipped()
+
+                    Circle()
+                        .fill(.black.opacity(hovering ? 0.65 : 0.45))
+                        .frame(width: 46, height: 46)
+                        .overlay(
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 18))
+                                .foregroundStyle(.white))
+                        .overlay(Circle().stroke(.white.opacity(0.9), lineWidth: 1.5))
+
+                    VStack {
+                        Spacer()
+                        if let progress = item.progress {
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    Rectangle().fill(.white.opacity(0.3))
+                                    Rectangle()
+                                        .fill(Color(red: 0.9, green: 0.15, blue: 0.13))
+                                        .frame(width: geo.size.width * min(max(progress, 0), 1))
+                                }
+                            }
+                            .frame(height: 4)
+                        }
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .shadow(color: .black.opacity(hovering ? 0.8 : 0.35),
+                        radius: hovering ? 14 : 5, y: 4)
+
+                Text(item.label)
+                    .font(.system(size: 12.5))
+                    .lineLimit(1)
+                    .frame(width: 290, alignment: .leading)
+                    .foregroundStyle(.white.opacity(hovering ? 1 : 0.75))
+            }
+            .scaleEffect(hovering ? 1.05 : 1.0)
+            .animation(.spring(duration: 0.22), value: hovering)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
+
+// MARK: - Detail sheets
+
+/// Movie page: backdrop, play/resume, rating stars, watched toggle.
+struct MovieDetailSheet: View {
+    let movie: StreamerManager.LibraryMovie
+    @ObservedObject var streamer: StreamerManager
+    let onPlay: (URL, String, String, Double?) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var stars: Int = 0
+    @State private var watched: Bool
+
+    init(movie: StreamerManager.LibraryMovie,
+         streamer: StreamerManager,
+         onPlay: @escaping (URL, String, String, Double?) -> Void) {
+        self.movie = movie
+        self.streamer = streamer
+        self.onPlay = onPlay
+        _watched = State(initialValue: movie.watched)
+    }
+
+    private var ratingKey: String? {
+        movie.progress_key.hasPrefix("plex:")
+            ? String(movie.progress_key.dropFirst("plex:".count)) : nil
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack(alignment: .bottomLeading) {
+                AsyncImage(url: (movie.backdrop_url ?? movie.poster_url).flatMap(URL.init)) { image in
+                    image.resizable().aspectRatio(contentMode: .fill)
+                } placeholder: {
+                    Rectangle().fill(.black)
+                }
+                .frame(height: 280)
+                .clipped()
+                LinearGradient(colors: [.clear, .black.opacity(0.95)], startPoint: .top, endPoint: .bottom)
+                HStack(alignment: .bottom) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(movie.title).font(.system(size: 34, weight: .black))
+                        HStack(spacing: 10) {
+                            if let year = movie.year { Text(String(year)) }
+                            if let dur = movie.duration_secs { Text("\(Int(dur) / 60) min") }
+                            if watched {
+                                Label("Watched", systemImage: "checkmark.circle.fill")
+                            }
+                        }
+                        .font(.callout)
+                        .foregroundStyle(.white.opacity(0.75))
+                    }
+                    Spacer()
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark.circle.fill").font(.title2)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(18)
+            }
+
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 12) {
+                    Button {
+                        if let url = streamer.resolveStream(movie.stream_url) {
+                            dismiss()
+                            let resume = movie.view_offset_secs
+                                ?? WatchProgress.position(for: movie.progress_key)
+                            onPlay(url, movie.title, movie.progress_key, resume)
+                        }
+                    } label: {
+                        Label(movie.view_offset_secs != nil ? "Resume" : "Play",
+                              systemImage: "play.fill")
+                            .font(.headline)
+                            .padding(.horizontal, 26).padding(.vertical, 9)
+                            .background(.white, in: RoundedRectangle(cornerRadius: 5))
+                            .foregroundStyle(.black)
+                    }
+                    .buttonStyle(.plain)
+
+                    if let key = ratingKey {
+                        Button {
+                            watched.toggle()
+                            streamer.plexSetWatched(ratingKey: key, watched: watched)
+                        } label: {
+                            Image(systemName: watched ? "checkmark.circle.fill" : "checkmark.circle")
+                                .font(.title2)
+                        }
+                        .buttonStyle(.plain)
+                        .help(watched ? "Mark unwatched" : "Mark watched")
+
+                        starRating(key: key)
+                    }
+                }
+
+                if let overview = movie.overview {
+                    Text(overview)
+                        .font(.system(size: 14))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+            }
+            .padding(20)
+        }
+        .frame(width: 620, height: 560)
+        .background(canvasColor)
+        .preferredColorScheme(.dark)
+    }
+
+    private func starRating(key: String) -> some View {
+        HStack(spacing: 3) {
+            ForEach(1...5, id: \.self) { i in
+                Button {
+                    stars = i
+                    streamer.plexRate(ratingKey: key, rating: Double(i * 2))
+                } label: {
+                    Image(systemName: i <= stars ? "star.fill" : "star")
+                        .foregroundStyle(i <= stars ? .yellow : .white.opacity(0.5))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .font(.system(size: 16))
+        .help("Rate on Plex")
     }
 }
 
@@ -403,9 +771,7 @@ struct ShowDetailSheet: View {
                             .foregroundStyle(.white.opacity(0.7))
                     }
                     Spacer()
-                    Button {
-                        dismiss()
-                    } label: {
+                    Button { dismiss() } label: {
                         Image(systemName: "xmark.circle.fill").font(.title2)
                     }
                     .buttonStyle(.plain)
@@ -420,26 +786,7 @@ struct ShowDetailSheet: View {
                 ForEach(seasons, id: \.0) { season, eps in
                     Section("Season \(season)") {
                         ForEach(eps) { ep in
-                            Button {
-                                if let url = streamer.resolveStream(ep.stream_url) {
-                                    dismiss()
-                                    let resume = ep.view_offset_secs
-                                        ?? WatchProgress.position(for: ep.progress_key)
-                                    onPlay(url, "\(show.name) S\(ep.season)E\(ep.episode)", ep.progress_key, resume)
-                                }
-                            } label: {
-                                HStack {
-                                    Text(String(format: "E%02d", ep.episode))
-                                        .font(.body.monospacedDigit())
-                                    Spacer()
-                                    if WatchProgress.position(for: ep.progress_key) != nil {
-                                        Image(systemName: "clock.arrow.circlepath")
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
+                            episodeRow(ep)
                         }
                     }
                 }
@@ -447,5 +794,35 @@ struct ShowDetailSheet: View {
         }
         .frame(width: 560, height: 640)
         .preferredColorScheme(.dark)
+    }
+
+    @ViewBuilder
+    private func episodeRow(_ ep: StreamerManager.LibraryEpisode) -> some View {
+        Button {
+            if let url = streamer.resolveStream(ep.stream_url) {
+                dismiss()
+                let resume = ep.view_offset_secs
+                    ?? WatchProgress.position(for: ep.progress_key)
+                onPlay(url, "\(show.name) S\(ep.season)E\(ep.episode)", ep.progress_key, resume)
+            }
+        } label: {
+            HStack {
+                Text(String(format: "E%02d", ep.episode))
+                    .font(.body.monospacedDigit())
+                if ep.watched {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green.opacity(0.7))
+                        .font(.caption)
+                }
+                Spacer()
+                if let o = ep.view_offset_secs, let d = ep.duration_secs, d > 0 {
+                    ProgressView(value: o / d)
+                        .frame(width: 60)
+                        .tint(Color(red: 0.9, green: 0.15, blue: 0.13))
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

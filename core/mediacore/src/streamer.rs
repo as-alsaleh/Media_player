@@ -49,6 +49,7 @@ struct MovieOut {
     view_offset_secs: Option<f64>,
     watched: bool,
     last_viewed_at: Option<u64>,
+    duration_secs: Option<f64>,
 }
 
 /// Loose identity for cross-source dedup: lowercase alphanumerics only.
@@ -82,6 +83,7 @@ struct EpisodeOut {
     view_offset_secs: Option<f64>,
     watched: bool,
     last_viewed_at: Option<u64>,
+    duration_secs: Option<f64>,
 }
 
 fn local_stream_url(path: &str) -> String {
@@ -154,6 +156,9 @@ impl Streamer {
             .route("/plex/progress", get(plex_progress))
             .route("/plex/users", get(plex_users))
             .route("/plex/switch", get(plex_switch))
+            .route("/plex/markers", get(plex_markers))
+            .route("/plex/rate", get(plex_rate))
+            .route("/plex/watched", get(plex_watched))
             .with_state(self.state);
         let listener =
             tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port))).await?;
@@ -222,6 +227,7 @@ async fn library_movies(State(st): State<AppState>) -> Response {
                     view_offset_secs: None,
                     watched: false,
                     last_viewed_at: None,
+                    duration_secs: None,
                 },
             );
         }
@@ -244,6 +250,7 @@ async fn library_movies(State(st): State<AppState>) -> Response {
                     view_offset_secs: m.view_offset_secs,
                     watched: m.watched,
                     last_viewed_at: m.last_viewed_at,
+                    duration_secs: m.duration_secs,
                 },
             );
         }
@@ -271,6 +278,7 @@ async fn library_episodes(State(st): State<AppState>) -> Response {
                     view_offset_secs: None,
                     watched: false,
                     last_viewed_at: None,
+                    duration_secs: None,
                 },
             );
         }
@@ -291,6 +299,7 @@ async fn library_episodes(State(st): State<AppState>) -> Response {
                     view_offset_secs: e.view_offset_secs,
                     watched: e.watched,
                     last_viewed_at: e.last_viewed_at,
+                    duration_secs: e.duration_secs,
                 },
             );
         }
@@ -359,6 +368,41 @@ async fn plex_progress(
     let state = q.get("state").map(String::as_str).unwrap_or("playing");
     let ok = plex.report_progress(key, time, duration, state).await;
     Json(serde_json::json!({"ok": ok})).into_response()
+}
+
+async fn plex_markers(
+    State(st): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (Some(plex), Some(key)) = (&st.plex, q.get("rating_key")) else {
+        return (StatusCode::BAD_REQUEST, "plex + rating_key required").into_response();
+    };
+    Json(plex.markers(key).await).into_response()
+}
+
+async fn plex_rate(
+    State(st): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (Some(plex), Some(key), Some(rating)) = (
+        &st.plex,
+        q.get("rating_key"),
+        q.get("rating").and_then(|r| r.parse::<f32>().ok()),
+    ) else {
+        return (StatusCode::BAD_REQUEST, "plex + rating_key + rating required").into_response();
+    };
+    Json(serde_json::json!({"ok": plex.rate(key, rating).await})).into_response()
+}
+
+async fn plex_watched(
+    State(st): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (Some(plex), Some(key)) = (&st.plex, q.get("rating_key")) else {
+        return (StatusCode::BAD_REQUEST, "plex + rating_key required").into_response();
+    };
+    let watched = q.get("watched").map(|w| w == "true").unwrap_or(true);
+    Json(serde_json::json!({"ok": plex.set_watched(key, watched).await})).into_response()
 }
 
 async fn plex_users(State(st): State<AppState>) -> Response {

@@ -28,6 +28,7 @@ struct ContentView: View {
     @State private var nowPlayingPath: String?
     @State private var pendingResume: Double?
     @State private var refreshTick = 0
+    @State private var markers: [StreamerManager.PlexMarker] = []
 
     private let progressTimer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
@@ -75,11 +76,43 @@ struct ContentView: View {
         }
     }
 
+    /// Marker (intro/credits/commercial) covering the current position.
+    private var activeMarker: StreamerManager.PlexMarker? {
+        markers.first {
+            player.timePos >= $0.start_secs && player.timePos < $0.end_secs - 1
+        }
+    }
+
+    private func skipLabel(_ kind: String) -> String {
+        switch kind {
+        case "intro": return "Skip Intro"
+        case "commercial": return "Skip Ad"
+        case "credits": return "Skip Credits"
+        default: return "Skip"
+        }
+    }
+
     private var playerOverlay: some View {
         ZStack(alignment: .top) {
             Color.black.ignoresSafeArea()
             VStack(spacing: 0) {
-                PlayerView(player: player)
+                ZStack(alignment: .bottomTrailing) {
+                    PlayerView(player: player)
+                    if let marker = activeMarker {
+                        Button {
+                            player.seek(to: marker.end_secs)
+                        } label: {
+                            Text(skipLabel(marker.kind))
+                                .font(.system(size: 15, weight: .bold))
+                                .padding(.horizontal, 22).padding(.vertical, 11)
+                                .background(.white, in: RoundedRectangle(cornerRadius: 4))
+                                .foregroundStyle(.black)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(24)
+                        .transition(.opacity)
+                    }
+                }
                 controls
             }
             HStack {
@@ -136,6 +169,12 @@ struct ContentView: View {
         pendingResume = resume
         showPlayer = true
         player.load(url: url)
+
+        markers = []
+        if path.hasPrefix("plex:") {
+            let key = String(path.dropFirst("plex:".count))
+            Task { markers = await streamer.plexMarkers(ratingKey: key) }
+        }
     }
 
     private func saveProgress() {

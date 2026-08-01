@@ -26,6 +26,15 @@ pub struct PlexMovie {
     pub view_offset_secs: Option<f64>,
     pub watched: bool,
     pub last_viewed_at: Option<u64>,
+    pub duration_secs: Option<f64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PlexMarker {
+    /// "intro", "credits", or "commercial".
+    pub kind: String,
+    pub start_secs: f64,
+    pub end_secs: f64,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -55,6 +64,7 @@ pub struct PlexEpisode {
     pub view_offset_secs: Option<f64>,
     pub watched: bool,
     pub last_viewed_at: Option<u64>,
+    pub duration_secs: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -104,13 +114,30 @@ struct Item {
     view_count: Option<u32>,
     #[serde(rename = "lastViewedAt")]
     last_viewed_at: Option<u64>,
+    duration: Option<u64>,
+    #[serde(rename = "Marker", default)]
+    markers: Vec<MarkerRaw>,
     #[serde(rename = "Media", default)]
     media: Vec<Media>,
+}
+
+#[derive(Deserialize)]
+struct MarkerRaw {
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(rename = "startTimeOffset")]
+    start: u64,
+    #[serde(rename = "endTimeOffset")]
+    end: u64,
 }
 
 impl Item {
     fn offset_secs(&self) -> Option<f64> {
         self.view_offset.map(|ms| ms as f64 / 1000.0)
+    }
+
+    fn duration_secs(&self) -> Option<f64> {
+        self.duration.map(|ms| ms as f64 / 1000.0)
     }
 
     fn watched(&self) -> bool {
@@ -198,6 +225,7 @@ impl PlexSource {
                     view_offset_secs: item.offset_secs(),
                     watched: item.watched(),
                     last_viewed_at: item.last_viewed_at,
+                    duration_secs: item.duration_secs(),
                 });
             }
         }
@@ -223,6 +251,57 @@ impl PlexSource {
             }
         }
         out
+    }
+
+    /// Intro/credits/commercial markers for one item.
+    pub async fn markers(&self, rating_key: &str) -> Vec<PlexMarker> {
+        let Some(list): Option<ItemList> = self
+            .get(&format!("/library/metadata/{rating_key}?includeMarkers=1"))
+            .await
+        else {
+            return Vec::new();
+        };
+        list.items
+            .first()
+            .map(|item| {
+                item.markers
+                    .iter()
+                    .map(|m| PlexMarker {
+                        kind: m.kind.clone(),
+                        start_secs: m.start as f64 / 1000.0,
+                        end_secs: m.end as f64 / 1000.0,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Set a 0–10 user rating on an item.
+    pub async fn rate(&self, rating_key: &str, rating: f32) -> bool {
+        let path = format!(
+            "/:/rate?identifier=com.plexapp.plugins.library&key={rating_key}&rating={rating}"
+        );
+        self.client
+            .put(self.url(&path))
+            .header("X-Plex-Client-Identifier", "dev.mediaplayer.app")
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+    }
+
+    /// Mark an item watched (`scrobble`) or unwatched (`unscrobble`).
+    pub async fn set_watched(&self, rating_key: &str, watched: bool) -> bool {
+        let verb = if watched { "scrobble" } else { "unscrobble" };
+        let path =
+            format!("/:/{verb}?identifier=com.plexapp.plugins.library&key={rating_key}");
+        self.client
+            .get(self.url(&path))
+            .header("X-Plex-Client-Identifier", "dev.mediaplayer.app")
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
     }
 
     /// Report playback progress back to the server so watch state stays in
@@ -333,6 +412,7 @@ impl PlexSource {
                     view_offset_secs: item.offset_secs(),
                     watched: item.watched(),
                     last_viewed_at: item.last_viewed_at,
+                    duration_secs: item.duration_secs(),
                 });
             }
         }

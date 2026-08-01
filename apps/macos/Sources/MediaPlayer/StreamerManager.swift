@@ -117,6 +117,7 @@ final class StreamerManager: ObservableObject {
         let view_offset_secs: Double?
         let watched: Bool
         let last_viewed_at: UInt64?
+        let duration_secs: Double?
         var id: String { uid }
     }
 
@@ -142,6 +143,7 @@ final class StreamerManager: ObservableObject {
         let view_offset_secs: Double?
         let watched: Bool
         let last_viewed_at: UInt64?
+        let duration_secs: Double?
         var id: String { uid }
     }
 
@@ -175,6 +177,41 @@ final class StreamerManager: ObservableObject {
             start(config: config, password: password)
         }
         return true
+    }
+
+    struct PlexMarker: Codable, Hashable {
+        let kind: String     // "intro" | "credits" | "commercial"
+        let start_secs: Double
+        let end_secs: Double
+    }
+
+    func plexMarkers(ratingKey: String) async -> [PlexMarker] {
+        guard let baseURL else { return [] }
+        var comps = URLComponents(url: baseURL.appendingPathComponent("plex/markers"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "rating_key", value: ratingKey)]
+        guard let (data, _) = try? await URLSession.shared.data(from: comps.url!) else { return [] }
+        return (try? JSONDecoder().decode([PlexMarker].self, from: data)) ?? []
+    }
+
+    func plexRate(ratingKey: String, rating: Double) {
+        fireAndForget("plex/rate", [
+            URLQueryItem(name: "rating_key", value: ratingKey),
+            URLQueryItem(name: "rating", value: String(rating)),
+        ])
+    }
+
+    func plexSetWatched(ratingKey: String, watched: Bool) {
+        fireAndForget("plex/watched", [
+            URLQueryItem(name: "rating_key", value: ratingKey),
+            URLQueryItem(name: "watched", value: watched ? "true" : "false"),
+        ])
+    }
+
+    private func fireAndForget(_ path: String, _ items: [URLQueryItem]) {
+        guard let baseURL else { return }
+        var comps = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+        comps.queryItems = items
+        URLSession.shared.dataTask(with: comps.url!).resume()
     }
 
     func reportPlexProgress(ratingKey: String, time: Double, duration: Double, state: String) {

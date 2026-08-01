@@ -41,6 +41,21 @@ final class MPVPlayer: ObservableObject {
         setOption("gpu-api", "vulkan")
         setOption("hwdec", "videotoolbox")
         setOption("target-colorspace-hint", "yes")
+
+        // HDR / Dolby Vision quality pipeline (libplacebo):
+        // dynamic peak detection + spline tone mapping preserves highlights,
+        // perceptual gamut mapping avoids hue shifts, deband hides gradient
+        // banding common in HDR web rips. DV P5/P8 RPUs are applied by
+        // libplacebo via libdovi automatically under gpu-next.
+        setOption("tone-mapping", "spline")
+        setOption("hdr-compute-peak", "yes")
+        setOption("gamut-mapping-mode", "perceptual")
+        setOption("deband", "yes")
+        // High-quality scalers; Apple-silicon GPUs handle these fine at 4K.
+        setOption("scale", "ewa_lanczossharp")
+        setOption("cscale", "ewa_lanczossharp")
+        setOption("dscale", "hermite")
+        setOption("dither-depth", "auto")
         setOption("keep-open", "yes")
         setOption("input-default-bindings", "no")
         // Generous demuxer cache for high-bitrate network streams later.
