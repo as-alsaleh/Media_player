@@ -74,6 +74,13 @@ struct ConnectView: View {
         }
         .navigationTitle("MediaPlayer")
         .onChange(of: core.lastError) { connecting = false }
+        .onAppear {
+            // Auto-connect when everything needed is already known.
+            if !connecting, !server.isEmpty, !share.isEmpty, !username.isEmpty, !password.isEmpty {
+                connecting = true
+                core.connect(server: server, share: share, username: username, password: password)
+            }
+        }
     }
 }
 
