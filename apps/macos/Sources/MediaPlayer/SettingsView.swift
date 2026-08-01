@@ -269,9 +269,9 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Toggle("Dolby / DTS passthrough", isOn: $audioPassthrough)
+            Toggle("Dolby passthrough (HDMI receivers only)", isOn: $audioPassthrough)
                 .font(.system(size: 13.5))
-            Text("Bitstreams Dolby Digital+, TrueHD (Atmos) and DTS untouched to a compatible receiver. Leave off for speakers or headphones.")
+            Text("Bitstreams Dolby audio untouched to an HDMI receiver. ⚠️ On built-in speakers or headphones this mutes most movies — turn it off if you lose sound.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

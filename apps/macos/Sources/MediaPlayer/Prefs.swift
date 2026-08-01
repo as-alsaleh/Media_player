@@ -38,8 +38,11 @@ enum Prefs {
         case "51": player.setString("audio-channels", "5.1,stereo")
         default: player.setString("audio-channels", "auto-safe")
         }
-        player.setString("audio-spdif",
-                         audioPassthrough ? "ac3,eac3,dts,dts-hd,truehd" : "")
+        // Passthrough only makes sense into an HDMI receiver — on speakers or
+        // headphones it silences every Dolby/DTS track. Keep the format list
+        // conservative and let mpv fall back to decoding when the device
+        // can't bitstream.
+        player.setString("audio-spdif", audioPassthrough ? "ac3,eac3" : "")
         player.setDouble("volume", defaultVolume)
         player.setAudioBoost(volumeBoost)
         player.setString("alang", langAudio.isEmpty ? "" : "\(langAudio),eng,en")
