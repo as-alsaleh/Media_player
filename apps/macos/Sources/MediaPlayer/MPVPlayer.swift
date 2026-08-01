@@ -116,8 +116,59 @@ final class MPVPlayer: ObservableObject {
     func setTrack(type: String, id: Int) {
         // type: "aid" (audio) or "sid" (subtitles); id 0 disables.
         guard let mpv else { return }
-        var v = Int64(id)
-        mpv_set_property(mpv, type, MPV_FORMAT_INT64, &v)
+        if id == 0 {
+            mpv_set_property_string(mpv, type, "no")
+        } else {
+            var v = Int64(id)
+            mpv_set_property(mpv, type, MPV_FORMAT_INT64, &v)
+        }
+    }
+
+    struct Track: Identifiable, Hashable {
+        let id: Int
+        let type: String     // "audio" | "sub" | "video"
+        let title: String?
+        let lang: String?
+        let selected: Bool
+
+        var label: String {
+            var parts: [String] = []
+            if let lang { parts.append(lang.uppercased()) }
+            if let title { parts.append(title) }
+            return parts.isEmpty ? "Track \(id)" : parts.joined(separator: " · ")
+        }
+    }
+
+    /// Current track list, decoded from mpv's JSON representation.
+    func tracks() -> [Track] {
+        guard let mpv, let cstr = mpv_get_property_string(mpv, "track-list") else { return [] }
+        defer { mpv_free(cstr) }
+        let data = Data(String(cString: cstr).utf8)
+
+        struct Raw: Decodable {
+            let id: Int
+            let type: String
+            let title: String?
+            let lang: String?
+            let selected: Bool
+        }
+        let raw = (try? JSONDecoder().decode([Raw].self, from: data)) ?? []
+        return raw.map {
+            Track(id: $0.id, type: $0.type, title: $0.title, lang: $0.lang, selected: $0.selected)
+        }
+    }
+
+    func setDouble(_ name: String, _ value: Double) {
+        guard let mpv else { return }
+        var v = value
+        mpv_set_property(mpv, name, MPV_FORMAT_DOUBLE, &v)
+    }
+
+    func getDouble(_ name: String) -> Double {
+        guard let mpv else { return 0 }
+        var v: Double = 0
+        mpv_get_property(mpv, name, MPV_FORMAT_DOUBLE, &v)
+        return v
     }
 
     func shutdown() {

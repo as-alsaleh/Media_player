@@ -31,6 +31,7 @@ struct ContentView: View {
     @State private var markers: [StreamerManager.PlexMarker] = []
     @State private var controlsVisible = true
     @State private var hideWork: DispatchWorkItem?
+    @State private var showSettings = false
 
     private let progressTimer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
@@ -135,11 +136,18 @@ struct ContentView: View {
                         .font(.system(size: 16, weight: .semibold))
                         .lineLimit(1)
                     Spacer()
-                    if !player.hwdecCurrent.isEmpty {
-                        Label(player.hwdecCurrent.uppercased(), systemImage: "bolt.fill")
-                            .font(.system(size: 10, weight: .bold))
-                            .padding(.horizontal, 8).padding(.vertical, 4)
-                            .background(.white.opacity(0.12), in: Capsule())
+                    Button {
+                        showSettings.toggle()
+                        pokeControls()
+                    } label: {
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(size: 15))
+                            .frame(width: 34, height: 34)
+                            .background(.white.opacity(0.15), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $showSettings, arrowEdge: .bottom) {
+                        PlayerSettingsView(player: player)
                     }
                 }
                 .padding(.horizontal, 22)

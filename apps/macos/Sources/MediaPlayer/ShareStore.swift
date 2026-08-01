@@ -33,6 +33,12 @@ enum ShareStore {
     }
 
     static func password(for config: ShareConfig) -> String? {
+        // Dev escape hatch: unsigned rebuilds change the code signature every
+        // time, which makes Keychain ACL checks stall on hidden auth prompts.
+        // A local-defaults password (set for development) short-circuits that.
+        if let dev = UserDefaults.standard.string(forKey: "smbPasswordDev"), !dev.isEmpty {
+            return dev
+        }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
