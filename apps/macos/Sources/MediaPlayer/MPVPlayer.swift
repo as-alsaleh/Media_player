@@ -197,6 +197,16 @@ final class MPVPlayer: ObservableObject {
         mpv_set_property_string(mpv, "af", on ? "dynaudnorm=g=5:f=250:r=0.9:p=0.5" : "")
     }
 
+    /// Force the render pipeline to re-read the layer's drawable size. The
+    /// embedded MoltenVK context only picks the size up on reconfig, so a
+    /// no-op filter-chain change makes resizes (fullscreen, minimize →
+    /// restore) take effect instead of leaving the picture at stale
+    /// dimensions.
+    func refreshRenderSize() {
+        command("vf", "add", "@resize-fix:null")
+        command("vf", "remove", "@resize-fix")
+    }
+
     /// Attach an external subtitle to the playing file. `select` picks it
     /// immediately; otherwise it just becomes available in the track list.
     func addSubtitle(url: String, title: String?, lang: String?, select: Bool = false) {
