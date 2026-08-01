@@ -46,9 +46,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     streamer = streamer.with_tmdb_key(std::env::var("MEDIACORED_TMDB_KEY").ok());
     if let (Some(url), Ok(token)) = (&args.plex_url, std::env::var("MEDIACORED_PLEX_TOKEN")) {
-        streamer = streamer
-            .with_plex(Some(mediacore::plex::PlexSource::new(url.clone(), token)));
-        if let Ok(admin) = std::env::var("MEDIACORED_PLEX_ADMIN_TOKEN") {
+        let admin = std::env::var("MEDIACORED_PLEX_ADMIN_TOKEN").ok();
+        streamer = streamer.with_plex(Some(
+            mediacore::plex::PlexSource::new(url.clone(), token)
+                .with_media_token(admin.clone()),
+        ));
+        if let Some(admin) = admin {
             streamer = streamer
                 .with_plex_admin(Some(mediacore::plex::PlexSource::new(url.clone(), admin)));
         }

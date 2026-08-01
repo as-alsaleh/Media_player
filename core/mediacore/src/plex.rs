@@ -10,6 +10,10 @@ use serde::Deserialize;
 pub struct PlexSource {
     base: String,
     token: String,
+    /// Token used for media part URLs. Managed/restricted Home users often
+    /// can't fetch raw parts (Plex 503s), so clients stream with the owner
+    /// token while metadata and watch state stay on the user token.
+    media_token: Option<String>,
     client: reqwest::Client,
 }
 
@@ -161,8 +165,14 @@ impl PlexSource {
         Self {
             base: base.trim_end_matches('/').to_string(),
             token,
+            media_token: None,
             client: reqwest::Client::new(),
         }
+    }
+
+    pub fn with_media_token(mut self, token: Option<String>) -> Self {
+        self.media_token = token.filter(|t| !t.is_empty());
+        self
     }
 
     fn url(&self, path: &str) -> String {
@@ -201,7 +211,9 @@ impl PlexSource {
 
     fn stream_url(&self, item: &Item) -> Option<String> {
         let part = item.media.first()?.parts.first()?;
-        Some(self.url(&part.key))
+        let token = self.media_token.as_deref().unwrap_or(&self.token);
+        let sep = if part.key.contains('?') { '&' } else { '?' };
+        Some(format!("{}{}{sep}X-Plex-Token={token}", self.base, part.key))
     }
 
     pub async fn movies(&self) -> Vec<PlexMovie> {
