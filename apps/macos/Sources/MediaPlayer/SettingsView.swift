@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Infuse-style settings: General, Files, Playback, Audio, Languages.
+/// Icon rows grouped into cards, monochrome design language.
 struct SettingsView: View {
     let onSaved: () -> Void
     var streamer: StreamerManager? = nil
@@ -12,6 +13,16 @@ struct SettingsView: View {
         case playback = "Playback"
         case audio = "Audio"
         case languages = "Languages"
+
+        var icon: String {
+            switch self {
+            case .general: return "gearshape.fill"
+            case .files: return "folder.fill"
+            case .playback: return "play.fill"
+            case .audio: return "speaker.wave.2.fill"
+            case .languages: return "globe"
+            }
+        }
     }
     @State private var section: Section = .general
 
@@ -62,31 +73,40 @@ struct SettingsView: View {
     ]
 
     var body: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 16) {
             HStack {
                 Text("Settings")
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
                 Spacer()
                 Button { dismiss() } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .frame(width: 26, height: 26)
+                        .background(.white.opacity(0.08), in: Circle())
+                        .foregroundStyle(.white.opacity(0.8))
                 }
                 .buttonStyle(.plain)
             }
 
             // Section chips
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     ForEach(Section.allCases, id: \.self) { s in
-                        Button { section = s } label: {
-                            Text(s.rawValue)
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                .padding(.horizontal, 15).padding(.vertical, 8)
-                                .background(section == s ? AnyShapeStyle(.white)
-                                                         : AnyShapeStyle(.white.opacity(0.08)),
-                                            in: Capsule())
-                                .foregroundStyle(section == s ? .black : .white)
+                        let selected = section == s
+                        Button {
+                            withAnimation(.easeOut(duration: 0.15)) { section = s }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: s.icon)
+                                    .font(.system(size: 11, weight: .semibold))
+                                Text(s.rawValue)
+                                    .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                            }
+                            .padding(.horizontal, 13).padding(.vertical, 8)
+                            .background(selected ? AnyShapeStyle(.white)
+                                                 : AnyShapeStyle(.white.opacity(0.07)),
+                                        in: Capsule())
+                            .foregroundStyle(selected ? .black : .white)
                         }
                         .buttonStyle(.plain)
                     }
@@ -94,7 +114,7 @@ struct SettingsView: View {
             }
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 16) {
                     switch section {
                     case .general: general
                     case .files: files
@@ -104,12 +124,12 @@ struct SettingsView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 6)
+                .padding(.vertical, 4)
             }
         }
-        .padding(22)
+        .padding(20)
         #if os(macOS)
-        .frame(width: 480, height: 560)
+        .frame(width: 500, height: 580)
         #endif
         .background(canvasColor)
         .preferredColorScheme(.dark)
@@ -119,54 +139,61 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var general: some View {
-        group("Plex Account") {
+        card("Account") {
             if !plexToken.isEmpty {
-                HStack(spacing: 10) {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Signed in to Plex")
-                            .font(.system(size: 14, weight: .semibold))
-                        if !plexServerName.isEmpty {
-                            Text(plexServerName).font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    Spacer()
+                row("checkmark.seal.fill", "Plex",
+                    caption: plexServerName.isEmpty ? "Signed in" : plexServerName) {
                     Button("Sign out") { signOutPlex() }
                         .buttonStyle(.plain)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.55))
                 }
             } else if let streamer {
-                PlexAuthButton(streamer: streamer) {
-                    dismiss()
-                    onSaved()
+                VStack(spacing: 8) {
+                    PlexAuthButton(streamer: streamer) {
+                        dismiss()
+                        onSaved()
+                    }
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
             }
         }
 
-        group("Library") {
+        card("Library") {
             Button {
                 Task { _ = try? await streamer?.scanLibrary() }
                 dismiss()
                 onSaved()
             } label: {
-                Label("Refresh Library", systemImage: "arrow.clockwise")
+                row("arrow.clockwise", "Refresh Library",
+                    caption: "Re-pull everything from Plex and rescan files") {
+                    chevron
+                }
             }
             .buttonStyle(.plain)
-            .font(.system(size: 13.5, weight: .semibold))
-        }
 
-        group("Storage") {
+            divider
+
             Button {
                 FadeInImage.cache.removeAllCachedResponses()
                 cacheCleared = true
             } label: {
-                Label(cacheCleared ? "Artwork Cache Cleared" : "Clear Artwork Cache",
-                      systemImage: "trash")
+                row("trash", cacheCleared ? "Artwork Cache Cleared" : "Clear Artwork Cache",
+                    caption: "Posters and backdrops re-download as needed") {
+                    if !cacheCleared { chevron }
+                }
             }
             .buttonStyle(.plain)
-            .font(.system(size: 13.5, weight: .semibold))
             .disabled(cacheCleared)
+        }
+
+        card("About") {
+            row("app.badge", "MediaPlayer", caption: "Open-source, powered by mpv") {
+                Text("0.1")
+                    .font(.system(size: 12).monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.4))
+            }
         }
     }
 
@@ -174,37 +201,40 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var files: some View {
-        group("Network Share (SMB)") {
-            VStack(alignment: .leading, spacing: 10) {
-                if let saved = ShareStore.load() {
-                    HStack(spacing: 8) {
-                        Image(systemName: "externaldrive.connected.to.line.below.fill")
-                            .foregroundStyle(.green)
-                        Text("\(saved.username)@\(saved.server)/\(saved.share)")
-                            .font(.system(size: 13, weight: .semibold).monospaced())
-                        Spacer()
-                        Button("Remove") {
-                            UserDefaults.standard.removeObject(forKey: "savedShare")
-                            smbServer = ""; smbShare = ""; smbUser = ""; smbPassword = ""
-                            dismiss(); onSaved()
-                        }
-                        .buttonStyle(.plain)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+        if let saved = ShareStore.load() {
+            card("Connected Share") {
+                row("externaldrive.fill.badge.checkmark",
+                    "\(saved.server)/\(saved.share)",
+                    caption: "Signed in as \(saved.username)") {
+                    Button("Remove") {
+                        UserDefaults.standard.removeObject(forKey: "savedShare")
+                        smbServer = ""; smbShare = ""; smbUser = ""; smbPassword = ""
+                        dismiss(); onSaved()
                     }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.55))
                 }
+            }
+        }
+
+        card("Add a Network Share (SMB)") {
+            VStack(spacing: 8) {
                 field("Server", text: $smbServer, prompt: "192.168.1.10")
                 field("Share", text: $smbShare, prompt: "media")
                 field("Username", text: $smbUser, prompt: "user")
-                HStack {
-                    Text("Password").frame(width: 84, alignment: .leading)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    Text("Password")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .frame(width: 76, alignment: .leading)
                     SecureField("••••••••", text: $smbPassword)
                         .textFieldStyle(.plain)
-                        .padding(.horizontal, 10).padding(.vertical, 7)
-                        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                        .font(.system(size: 13))
+                        .padding(.horizontal, 10).padding(.vertical, 8)
+                        .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
                 }
+
                 Button {
                     let config = ShareConfig(server: smbServer, share: smbShare, username: smbUser)
                     ShareStore.save(config, password: smbPassword)
@@ -214,17 +244,21 @@ struct SettingsView: View {
                     onSaved()
                 } label: {
                     Text("Connect")
-                        .font(.system(size: 13.5, weight: .bold, design: .rounded))
-                        .padding(.horizontal, 24).padding(.vertical, 9)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .padding(.horizontal, 26).padding(.vertical, 9)
                         .background(.white, in: Capsule())
                         .foregroundStyle(.black)
                 }
                 .buttonStyle(.plain)
                 .disabled(smbServer.isEmpty || smbShare.isEmpty || smbUser.isEmpty)
+                .padding(.top, 6)
+
                 Text("Files on the share appear in the Files tab and, without Plex, in the library.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.4))
+                    .multilineTextAlignment(.center)
             }
+            .padding(.horizontal, 14).padding(.vertical, 12)
         }
     }
 
@@ -232,28 +266,35 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var playback: some View {
-        group("Intros & Ads") {
-            labeledPicker("Skip mode", selection: $introSkipMode, options: [
-                ("Off", "off"), ("Show button", "manual"), ("Automatic", "auto"),
-            ])
-            Text("Uses Plex intro/ad/credits markers. Automatic jumps past intros and ads for you.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        card("Intros & Ads") {
+            row("forward.end.fill", "Skip mode",
+                caption: "Automatic jumps past intros and ads for you") {
+                picker($introSkipMode, options: [
+                    ("Off", "off"), ("Show button", "manual"), ("Automatic", "auto"),
+                ])
+            }
         }
 
-        group("Seeking") {
-            labeledPicker("Skip forward", selection: $skipForwardSecs, options: [
-                ("10 seconds", 10), ("15 seconds", 15), ("30 seconds", 30),
-                ("45 seconds", 45), ("60 seconds", 60), ("90 seconds", 90),
-            ])
-            labeledPicker("Skip back", selection: $skipBackSecs, options: [
-                ("5 seconds", 5), ("10 seconds", 10), ("15 seconds", 15), ("30 seconds", 30),
-            ])
+        card("Seeking") {
+            row("goforward.30", "Skip forward", caption: nil) {
+                picker($skipForwardSecs, options: [
+                    ("10 seconds", 10), ("15 seconds", 15), ("30 seconds", 30),
+                    ("45 seconds", 45), ("60 seconds", 60), ("90 seconds", 90),
+                ])
+            }
+            divider
+            row("gobackward.10", "Skip back", caption: nil) {
+                picker($skipBackSecs, options: [
+                    ("5 seconds", 5), ("10 seconds", 10), ("15 seconds", 15), ("30 seconds", 30),
+                ])
+            }
         }
 
-        group("Episodes") {
-            Toggle("Autoplay next episode", isOn: $autoPlayNext)
-                .font(.system(size: 13.5))
+        card("Episodes") {
+            row("play.rectangle.on.rectangle.fill", "Autoplay next episode",
+                caption: "Start the next episode when one ends") {
+                prefToggle($autoPlayNext)
+            }
         }
     }
 
@@ -261,36 +302,37 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var audio: some View {
-        group("Output") {
-            labeledPicker("Channels", selection: $audioOutput, options: [
-                ("Auto", "auto"), ("Stereo (downmix)", "stereo"), ("5.1 Surround", "51"),
-            ])
-            Text("5.1 sends multichannel audio to HDMI or AirPlay receivers; Stereo downmixes everything for TV or headphone listening.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Toggle("Dolby passthrough (HDMI receivers only)", isOn: $audioPassthrough)
-                .font(.system(size: 13.5))
-            Text("Bitstreams Dolby audio untouched to an HDMI receiver. ⚠️ On built-in speakers or headphones this mutes most movies — turn it off if you lose sound.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        card("Output") {
+            row("hifispeaker.fill", "Channels",
+                caption: "5.1 needs an HDMI or AirPlay receiver") {
+                picker($audioOutput, options: [
+                    ("Auto", "auto"), ("Stereo (downmix)", "stereo"), ("5.1 Surround", "51"),
+                ])
+            }
+            divider
+            row("cable.connector", "Dolby passthrough",
+                caption: "HDMI receivers only — mutes built-in speakers") {
+                prefToggle($audioPassthrough)
+            }
         }
 
-        group("Levels") {
-            HStack {
-                Text("Volume").font(.system(size: 13.5))
-                CompatSlider(value: $defaultVolume, range: 0...130)
-                    .tint(.white)
-                Text("\(Int(defaultVolume))%")
-                    .font(.system(size: 12).monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .frame(width: 44, alignment: .trailing)
+        card("Levels") {
+            row("speaker.wave.2.fill", "Volume", caption: nil) {
+                HStack(spacing: 8) {
+                    CompatSlider(value: $defaultVolume, range: 0...130)
+                        .tint(.white)
+                        .frame(width: 130)
+                    Text("\(Int(defaultVolume))%")
+                        .font(.system(size: 11).monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.5))
+                        .frame(width: 38, alignment: .trailing)
+                }
             }
-            Toggle("Volume boost", isOn: $volumeBoost)
-                .font(.system(size: 13.5))
-            Text("Evens out quiet dialogue and loud action scenes (dynamic range compression).")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            divider
+            row("dial.medium.fill", "Volume boost",
+                caption: "Evens out quiet dialogue and loud scenes") {
+                prefToggle($volumeBoost)
+            }
         }
     }
 
@@ -298,68 +340,125 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var languages: some View {
-        group("Playback") {
-            labeledPicker("Audio", selection: $langAudio, options: Self.trackLanguages)
-            labeledPicker("Subtitles", selection: $langSubtitles, options: Self.trackLanguages)
-            Text("Preferred track languages, picked automatically when a file has them.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        card("Playback") {
+            row("waveform", "Audio", caption: "Preferred audio track language") {
+                picker($langAudio, options: Self.trackLanguages)
+            }
+            divider
+            row("captions.bubble.fill", "Subtitles", caption: "Preferred subtitle language") {
+                picker($langSubtitles, options: Self.trackLanguages)
+            }
         }
 
-        group("Library") {
-            labeledPicker("Metadata", selection: $langMetadata, options: Self.metaLanguages)
-            labeledPicker("Artwork", selection: $langArtwork, options: Self.metaLanguages)
-            Text("Language for titles, overviews and artwork fetched from TMDB. Plex items follow the Plex server's language settings.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        card("Library") {
+            row("doc.text.fill", "Metadata", caption: "Titles and overviews from TMDB") {
+                picker($langMetadata, options: Self.metaLanguages)
+            }
+            divider
+            row("photo.fill", "Artwork", caption: "Poster language when available") {
+                picker($langArtwork, options: Self.metaLanguages)
+            }
         }
+
+        Text("Plex items follow the Plex server's own language settings.")
+            .font(.system(size: 11))
+            .foregroundStyle(.white.opacity(0.4))
+            .frame(maxWidth: .infinity)
     }
 
-    // MARK: - Bits
+    // MARK: - Building blocks
 
     @ViewBuilder
-    private func group(_ title: String, @ViewBuilder content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+    private func card(_ title: String, @ViewBuilder content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
             Text(title.uppercased())
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.45))
-                .kerning(1.1)
-            VStack(alignment: .leading, spacing: 10, content: content)
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+                .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.4))
+                .kerning(1.2)
+                .padding(.leading, 6)
+            VStack(spacing: 0, content: content)
+                .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14)
+                    .stroke(.white.opacity(0.05), lineWidth: 1))
         }
     }
 
-    private func labeledPicker<T: Hashable>(_ label: String,
-                                            selection: Binding<T>,
-                                            options: [(String, T)]) -> some View {
-        HStack {
-            Text(label).font(.system(size: 13.5))
-            Spacer()
-            Picker(label, selection: selection) {
-                ForEach(options, id: \.1) { name, value in
-                    Text(name).tag(value)
+    private var divider: some View {
+        Divider()
+            .overlay(.white.opacity(0.05))
+            .padding(.leading, 56)
+    }
+
+    private var chevron: some View {
+        Image(systemName: "chevron.right")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.3))
+    }
+
+    private func row<Content: View>(_ icon: String, _ title: String,
+                                    caption: String?,
+                                    @ViewBuilder control: () -> Content) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.85))
+                .frame(width: 30, height: 30)
+                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 13.5, weight: .medium))
+                    .foregroundStyle(.white)
+                if let caption {
+                    Text(caption)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.45))
                 }
             }
+            Spacer(minLength: 12)
+            control()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+    }
+
+    private func picker<T: Hashable>(_ selection: Binding<T>,
+                                     options: [(String, T)]) -> some View {
+        Picker("", selection: selection) {
+            ForEach(options, id: \.1) { name, value in
+                Text(name).tag(value)
+            }
+        }
+        .labelsHidden()
+        #if !os(tvOS)
+        .pickerStyle(.menu)
+        #endif
+        .tint(.white.opacity(0.7))
+        .fixedSize()
+    }
+
+    private func prefToggle(_ value: Binding<Bool>) -> some View {
+        Toggle("", isOn: value)
             .labelsHidden()
             #if !os(tvOS)
-            .pickerStyle(.menu)
+            .toggleStyle(.switch)
             #endif
-            .fixedSize()
-        }
+            .tint(.white.opacity(0.35))
+            .controlSize(.small)
     }
 
     private func field(_ label: String, text: Binding<String>, prompt: String) -> some View {
-        HStack {
-            Text(label).frame(width: 84, alignment: .leading)
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
+        HStack(spacing: 10) {
+            Text(label)
+                .font(.system(size: 12.5))
+                .foregroundStyle(.white.opacity(0.55))
+                .frame(width: 76, alignment: .leading)
             TextField(prompt, text: text)
                 .textFieldStyle(.plain)
+                .font(.system(size: 13))
                 .autocorrectionDisabled()
-                .padding(.horizontal, 10).padding(.vertical, 7)
-                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                .padding(.horizontal, 10).padding(.vertical, 8)
+                .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
         }
     }
 
