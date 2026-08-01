@@ -135,6 +135,14 @@ struct BrowseView: View {
         searchText.isEmpty || title.localizedCaseInsensitiveContains(searchText)
     }
 
+    /// A Home user other than the account owner is active.
+    private var isRestrictedProfile: Bool {
+        let d = UserDefaults.standard
+        guard let active = d.string(forKey: "plexActiveToken"),
+              let admin = d.string(forKey: "plexToken") else { return false }
+        return active != admin
+    }
+
     var body: some View {
         ZStack(alignment: .top) {
             canvasColor.ignoresSafeArea()
@@ -257,11 +265,13 @@ struct BrowseView: View {
             }
             .buttonStyle(.plain)
             .help("Rescan library")
-            Button { showFiles = true } label: {
-                Image(systemName: "folder")
+            if !isRestrictedProfile {
+                Button { showFiles = true } label: {
+                    Image(systemName: "folder")
+                }
+                .buttonStyle(.plain)
+                .help("Browse files")
             }
-            .buttonStyle(.plain)
-            .help("Browse files")
         }
         .font(.system(size: 14))
         .foregroundStyle(.white.opacity(0.85))
@@ -694,13 +704,38 @@ struct PosterCard: View {
 
     @State private var hovering = false
 
+    private var labelVisible: Bool {
+        #if os(macOS)
+        hovering
+        #else
+        true
+        #endif
+    }
+
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 6) {
-                ZStack(alignment: .bottom) {
-                    FadeInImage(url: posterURL.flatMap(URL.init))
+            ZStack(alignment: .bottom) {
+                FadeInImage(url: posterURL.flatMap(URL.init))
                     .frame(width: 152, height: 228)
                     .clipped()
+
+                    if labelVisible {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Spacer()
+                            Text(label)
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .lineLimit(2)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 9)
+                                .padding(.bottom, progress != nil ? 10 : 8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    LinearGradient(colors: [.clear, .black.opacity(0.85)],
+                                                   startPoint: .top, endPoint: .bottom)
+                                        .frame(height: 74), alignment: .bottom)
+                        }
+                        .transition(.opacity)
+                    }
 
                     if let progress {
                         progressBar(progress)
@@ -717,21 +752,14 @@ struct PosterCard: View {
                             Spacer()
                         }
                     }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(.white.opacity(hovering ? 0.5 : 0.07), lineWidth: hovering ? 1.5 : 1))
-                .shadow(color: hovering ? .white.opacity(0.25) : .black.opacity(0.4),
-                        radius: hovering ? 16 : 5, y: 5)
-
-                Text(label)
-                    .font(.system(size: 12))
-                    .lineLimit(1)
-                    .frame(width: 152, alignment: .leading)
-                    .foregroundStyle(.white.opacity(hovering ? 1 : 0.7))
             }
-            .scaleEffect(hovering ? 1.08 : 1.0)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(.white.opacity(hovering ? 0.5 : 0.07), lineWidth: hovering ? 1.5 : 1))
+            .shadow(color: hovering ? .white.opacity(0.25) : .black.opacity(0.4),
+                    radius: hovering ? 16 : 5, y: 5)
+            .scaleEffect(hovering ? 1.07 : 1.0)
             .animation(.spring(duration: 0.22), value: hovering)
         }
         .buttonStyle(.plain)
@@ -760,11 +788,30 @@ struct ContinueCard: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 6) {
-                ZStack {
-                    FadeInImage(url: item.backdropOrPoster.flatMap(URL.init))
+            ZStack {
+                FadeInImage(url: item.backdropOrPoster.flatMap(URL.init))
                     .frame(width: 290, height: 163)
                     .clipped()
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        Spacer()
+                        Text(item.label)
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .lineLimit(1)
+                            .foregroundStyle(.white)
+                        if let remaining = item.remainingText {
+                            Text(remaining)
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(.white.opacity(0.6))
+                        }
+                    }
+                    .padding(.horizontal, 11)
+                    .padding(.bottom, 10)
+                    .frame(width: 290, alignment: .leading)
+                    .background(
+                        LinearGradient(colors: [.clear, .black.opacity(0.9)],
+                                       startPoint: .top, endPoint: .bottom)
+                            .frame(height: 80), alignment: .bottom)
 
                     Circle()
                         .fill(.black.opacity(hovering ? 0.65 : 0.45))
@@ -789,28 +836,14 @@ struct ContinueCard: View {
                             .frame(height: 4)
                         }
                     }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(.white.opacity(hovering ? 0.5 : 0.07), lineWidth: hovering ? 1.5 : 1))
-                .shadow(color: hovering ? .white.opacity(0.25) : .black.opacity(0.4),
-                        radius: hovering ? 14 : 5, y: 4)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(item.label)
-                        .font(.system(size: 12.5, weight: .medium))
-                        .lineLimit(1)
-                        .foregroundStyle(.white.opacity(hovering ? 1 : 0.8))
-                    if let remaining = item.remainingText {
-                        Text(remaining)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.white.opacity(0.45))
-                    }
-                }
-                .frame(width: 290, alignment: .leading)
             }
-            .scaleEffect(hovering ? 1.05 : 1.0)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(.white.opacity(hovering ? 0.5 : 0.07), lineWidth: hovering ? 1.5 : 1))
+            .shadow(color: hovering ? .white.opacity(0.25) : .black.opacity(0.4),
+                    radius: hovering ? 14 : 5, y: 4)
+            .scaleEffect(hovering ? 1.04 : 1.0)
             .animation(.spring(duration: 0.22), value: hovering)
         }
         .buttonStyle(.plain)

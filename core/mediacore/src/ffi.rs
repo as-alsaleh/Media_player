@@ -56,6 +56,7 @@ pub fn start_streamer(
                     .with_media_token(plex_admin_token.clone()),
             ));
             if let Some(admin) = &plex_admin_token {
+                streamer = streamer.with_restricted(admin != token);
                 streamer = streamer.with_plex_admin(Some(crate::plex::PlexSource::new(
                     url.clone(),
                     admin.clone(),

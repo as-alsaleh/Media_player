@@ -29,6 +29,9 @@ pub struct AppState {
     /// Account-level source for Home-user listing/switching (admin token);
     /// falls back to `plex` when absent.
     pub plex_admin: Option<Arc<crate::plex::PlexSource>>,
+    /// Active user is a restricted Home profile: hide local-index items and
+    /// block raw share browsing so Plex library permissions are respected.
+    pub restricted: bool,
 }
 
 /// Unified library item shapes served to the UI, regardless of source.
@@ -119,6 +122,7 @@ impl Streamer {
                 tmdb_key: None,
                 plex: None,
                 plex_admin: None,
+                restricted: false,
             },
         }
     }
@@ -130,6 +134,11 @@ impl Streamer {
 
     pub fn with_plex_admin(mut self, plex: Option<crate::plex::PlexSource>) -> Self {
         self.state.plex_admin = plex.map(Arc::new);
+        self
+    }
+
+    pub fn with_restricted(mut self, restricted: bool) -> Self {
+        self.state.restricted = restricted;
         self
     }
 
@@ -176,6 +185,9 @@ async fn list(
     State(st): State<AppState>,
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
+    if st.restricted {
+        return (StatusCode::FORBIDDEN, "restricted profile").into_response();
+    }
     let path = q.get("path").map(String::as_str).unwrap_or("");
     match st.fs.list_dir(path).await {
         Ok(entries) => Json(entries).into_response(),
@@ -209,7 +221,7 @@ async fn library_movies(State(st): State<AppState>) -> Response {
     // Keyed by normalized title(+year); Plex wins on collision because it
     // carries watch state and richer metadata.
     let mut map: HashMap<String, MovieOut> = HashMap::new();
-    if let Some(Ok(rows)) = st.index.as_ref().map(|i| i.movies()) {
+    if let (false, Some(Ok(rows))) = (st.restricted, st.index.as_ref().map(|i| i.movies())) {
         for m in rows {
             let key = format!("{}|{}", norm(&m.title), m.year.unwrap_or(0));
             map.insert(
@@ -262,7 +274,7 @@ async fn library_movies(State(st): State<AppState>) -> Response {
 
 async fn library_episodes(State(st): State<AppState>) -> Response {
     let mut map: HashMap<String, EpisodeOut> = HashMap::new();
-    if let Some(Ok(rows)) = st.index.as_ref().map(|i| i.episodes()) {
+    if let (false, Some(Ok(rows))) = (st.restricted, st.index.as_ref().map(|i| i.episodes())) {
         for e in rows {
             let key = format!("{}|{}|{}", norm(&e.show), e.season, e.episode);
             map.insert(
@@ -314,7 +326,7 @@ async fn library_episodes(State(st): State<AppState>) -> Response {
 
 async fn library_shows(State(st): State<AppState>) -> Response {
     let mut map: HashMap<String, ShowOut> = HashMap::new();
-    if let Some(Ok(rows)) = st.index.as_ref().map(|i| i.shows()) {
+    if let (false, Some(Ok(rows))) = (st.restricted, st.index.as_ref().map(|i| i.shows())) {
         for s in rows {
             map.insert(
                 norm(&s.name),

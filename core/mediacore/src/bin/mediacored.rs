@@ -52,6 +52,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .with_media_token(admin.clone()),
         ));
         if let Some(admin) = admin {
+            let token_env = std::env::var("MEDIACORED_PLEX_TOKEN").unwrap_or_default();
+            streamer = streamer.with_restricted(admin != token_env);
             streamer = streamer
                 .with_plex_admin(Some(mediacore::plex::PlexSource::new(url.clone(), admin)));
         }
