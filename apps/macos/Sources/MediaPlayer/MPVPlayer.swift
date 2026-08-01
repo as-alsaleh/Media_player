@@ -19,6 +19,8 @@ final class MPVPlayer: ObservableObject {
 
     private var mpv: OpaquePointer?
     private var eventThread: Thread?
+    /// URL requested before the render surface existed; applied on attach.
+    private var pendingLoad: URL?
 
     func attach(layer: CAMetalLayer) {
         guard mpv == nil else { return }
@@ -59,6 +61,11 @@ final class MPVPlayer: ObservableObject {
         thread.start()
         eventThread = thread
 
+        if let pending = pendingLoad {
+            pendingLoad = nil
+            load(url: pending)
+        }
+
         // Allow `MediaPlayer /path/to/file` for headless/scripted testing.
         if CommandLine.arguments.count > 1 {
             let arg = CommandLine.arguments[1]
@@ -71,6 +78,10 @@ final class MPVPlayer: ObservableObject {
     }
 
     func load(url: URL) {
+        guard mpv != nil else {
+            pendingLoad = url
+            return
+        }
         command("loadfile", url.isFileURL ? url.path : url.absoluteString)
         setProperty("pause", flag: false)
     }
