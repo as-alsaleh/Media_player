@@ -207,9 +207,9 @@ struct ContentView: View {
                             )
                             .tint(progressRed)
                             .controlSize(.small)
-                            // Intro/ad/credits marker ticks on the timeline.
+                            // Intro/ad/credits marker ticks + hover cursor.
                             .background {
-                                if player.duration > 0, !markers.isEmpty {
+                                if player.duration > 0 {
                                     ForEach(markers, id: \.self) { m in
                                         Capsule()
                                             .fill(.white.opacity(0.55))
@@ -218,9 +218,19 @@ struct ContentView: View {
                                                 x: geo.size.width * m.start_secs / player.duration,
                                                 y: geo.size.height / 2)
                                     }
+                                    if let scrub = hoverScrub {
+                                        Capsule()
+                                            .fill(.white.opacity(0.9))
+                                            .frame(width: 2.5, height: 14)
+                                            .position(x: scrub.x, y: geo.size.height / 2)
+                                    }
                                 }
                             }
-                            // Seek preview: track the hovered timestamp.
+                            // Seek preview: track the hovered timestamp. The
+                            // expanded content shape makes the whole strip
+                            // around the timeline a hover target, not just
+                            // the thin slider itself.
+                            .contentShape(Rectangle().inset(by: -18))
                             .onContinuousHover { phase in
                                 switch phase {
                                 case .active(let pt):
@@ -338,27 +348,29 @@ struct ContentView: View {
     /// server has generated video preview thumbnails) plus the timestamp.
     @ViewBuilder
     private func seekPreview(_ scrub: (x: CGFloat, time: Double, width: CGFloat)) -> some View {
-        let bubbleWidth: CGFloat = previewTemplate != nil ? 176 : 64
+        let bubbleWidth: CGFloat = previewTemplate != nil ? 200 : 96
         let x = min(max(scrub.x - bubbleWidth / 2, 0), scrub.width - bubbleWidth)
-        VStack(spacing: 5) {
+        VStack(spacing: 6) {
             if let template = previewTemplate {
                 // BIF frames come every few seconds; round to 10s so hovering
                 // doesn't hammer the server.
                 let ms = Int(scrub.time / 10) * 10_000
                 FadeInImage(url: URL(string: template.replacingOccurrences(of: "{ms}", with: String(ms))))
-                    .frame(width: 176, height: 99)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.3), lineWidth: 1))
-                    .shadow(color: .black.opacity(0.6), radius: 10, y: 4)
+                    .frame(width: 200, height: 112)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.35), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.7), radius: 12, y: 4)
             }
             Text(format(scrub.time))
-                .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                .font(.system(size: 14, weight: .bold).monospacedDigit())
                 .foregroundStyle(.white)
-                .padding(.horizontal, 9).padding(.vertical, 4)
-                .background(.black.opacity(0.8), in: Capsule())
+                .padding(.horizontal, 13).padding(.vertical, 7)
+                .background(.black.opacity(0.9), in: Capsule())
+                .overlay(Capsule().stroke(.white.opacity(0.25), lineWidth: 1))
+                .shadow(color: .black.opacity(0.5), radius: 8, y: 3)
         }
         .frame(width: bubbleWidth)
-        .offset(x: x, y: previewTemplate != nil ? -140 : -36)
+        .offset(x: x, y: previewTemplate != nil ? -158 : -48)
         .allowsHitTesting(false)
     }
 
