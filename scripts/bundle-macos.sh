@@ -12,6 +12,8 @@ BUNDLE_DIR=".build/MediaPlayer.app"
 rm -rf "$BUNDLE_DIR"
 mkdir -p "$BUNDLE_DIR/Contents/MacOS"
 cp Info.plist "$BUNDLE_DIR/Contents/Info.plist"
+mkdir -p "$BUNDLE_DIR/Contents/Resources"
+cp AppIcon.icns "$BUNDLE_DIR/Contents/Resources/AppIcon.icns"
 cp "$BIN" "$BUNDLE_DIR/Contents/MacOS/MediaPlayer"
 
 # Bundle the mediacored streamer helper (built by cargo).
