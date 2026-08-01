@@ -1,10 +1,11 @@
 import SwiftUI
 
-let canvasColor = Color(red: 0.055, green: 0.065, blue: 0.10)
-let accentA = Color(red: 0.42, green: 0.45, blue: 1.0)     // indigo
-let accentB = Color(red: 0.25, green: 0.85, blue: 0.90)    // cyan
+// Pure monochrome: true black canvas, white accents, hairline strokes.
+let canvasColor = Color(red: 0.02, green: 0.02, blue: 0.025)
+let accentA = Color.white
+let accentB = Color.white
 let accentGradient = LinearGradient(
-    colors: [accentA, accentB], startPoint: .leading, endPoint: .trailing)
+    colors: [.white, .white], startPoint: .leading, endPoint: .trailing)
 
 #if os(macOS)
 let edgePad: CGFloat = 48
@@ -198,7 +199,7 @@ struct BrowseView: View {
         HStack(spacing: edgePad > 30 ? 22 : 12) {
             Text(edgePad > 30 ? "mediaplayer" : "mp")
                 .font(.system(size: edgePad > 30 ? 19 : 22, weight: .heavy, design: .rounded))
-                .foregroundStyle(accentGradient)
+                .foregroundStyle(.white)
                 .fixedSize()
 
             HStack(spacing: 2) {
@@ -210,8 +211,8 @@ struct BrowseView: View {
                             .font(.system(size: 12.5, weight: .semibold, design: .rounded))
                             .padding(.horizontal, 14).padding(.vertical, 7)
                             .background(
-                                Capsule().fill(accentGradient).opacity(tab == t ? 1 : 0))
-                            .foregroundStyle(tab == t ? .white : .white.opacity(0.65))
+                                Capsule().fill(.white).opacity(tab == t ? 1 : 0))
+                            .foregroundStyle(tab == t ? .black : .white.opacity(0.65))
                     }
                     .buttonStyle(.plain)
                     .fixedSize()
@@ -375,9 +376,8 @@ struct BrowseView: View {
                                   systemImage: "play.fill")
                                 .font(.system(size: 15, weight: .bold, design: .rounded))
                                 .padding(.horizontal, 30).padding(.vertical, 12)
-                                .background(accentGradient, in: Capsule())
-                                .foregroundStyle(.white)
-                                .shadow(color: accentA.opacity(0.5), radius: 12, y: 4)
+                                .background(.white, in: Capsule())
+                                .foregroundStyle(.black)
                         }
                         .buttonStyle(.plain)
                         Button {
@@ -398,7 +398,7 @@ struct BrowseView: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: 26))
             .overlay(RoundedRectangle(cornerRadius: 26).stroke(.white.opacity(0.08), lineWidth: 1))
-            .shadow(color: accentA.opacity(0.28), radius: 42, y: 18)
+            .shadow(color: .black.opacity(0.8), radius: 38, y: 16)
             .padding(.horizontal, edgePad)
             .padding(.top, 64)
         }
@@ -566,14 +566,11 @@ struct BrowseView: View {
     }
 
     private func sectionHeader(_ title: String) -> some View {
-        HStack(spacing: 10) {
-            Circle()
-                .fill(accentGradient)
-                .frame(width: 8, height: 8)
-            Text(title)
-                .font(.system(size: 21, weight: .bold, design: .rounded))
-        }
-        .padding(.horizontal, edgePad)
+        Text(title.uppercased())
+            .font(.system(size: 13, weight: .bold))
+            .kerning(2.2)
+            .foregroundStyle(.white.opacity(0.55))
+            .padding(.horizontal, edgePad)
     }
 
     private var emptyState: some View {
@@ -723,8 +720,8 @@ struct PosterCard: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: 14)
                         .stroke(.white.opacity(hovering ? 0.5 : 0.07), lineWidth: hovering ? 1.5 : 1))
-                .shadow(color: hovering ? accentA.opacity(0.55) : .black.opacity(0.35),
-                        radius: hovering ? 18 : 5, y: 5)
+                .shadow(color: hovering ? .white.opacity(0.25) : .black.opacity(0.4),
+                        radius: hovering ? 16 : 5, y: 5)
 
                 Text(label)
                     .font(.system(size: 12))
@@ -795,8 +792,8 @@ struct ContinueCard: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
                         .stroke(.white.opacity(hovering ? 0.5 : 0.07), lineWidth: hovering ? 1.5 : 1))
-                .shadow(color: hovering ? accentA.opacity(0.55) : .black.opacity(0.35),
-                        radius: hovering ? 16 : 5, y: 4)
+                .shadow(color: hovering ? .white.opacity(0.25) : .black.opacity(0.4),
+                        radius: hovering ? 14 : 5, y: 4)
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(item.label)
