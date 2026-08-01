@@ -28,7 +28,7 @@ targets:
       - path: ../../build/mediacore/bindings/mediacore.swift
     dependencies:
       - package: MPVKit
-        product: MPVKit-GPL
+        product: MPVKit
       - framework: ../../build/mediacore/Mediacore.xcframework
         embed: false
     settings:
@@ -60,7 +60,7 @@ targets:
       - path: ../../build/mediacore/bindings/mediacore.swift
     dependencies:
       - package: MPVKit
-        product: MPVKit-GPL
+        product: MPVKit
       - framework: ../../build/mediacore/Mediacore.xcframework
         embed: false
     settings:

@@ -121,6 +121,23 @@ struct RootView: View {
         if path.hasPrefix("plex:") {
             let key = String(path.dropFirst("plex:".count))
             Task { markers = await streamer.plexMarkers(ratingKey: key) }
+            Task {
+                let subs = await streamer.plexSubtitles(ratingKey: key)
+                guard !subs.isEmpty else { return }
+                for _ in 0..<40 where player.duration <= 0 {
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                }
+                let pref = Prefs.langSubtitles.split(separator: ",").map(String.init)
+                var selected = false
+                for sub in subs {
+                    let matches = !pref.isEmpty && (sub.lang.map { lang in
+                        pref.contains { lang.hasPrefix($0) || $0.hasPrefix(lang) }
+                    } ?? false)
+                    player.addSubtitle(url: sub.url, title: sub.title, lang: sub.lang,
+                                       select: matches && !selected)
+                    if matches { selected = true }
+                }
+            }
         }
 
         player.onFileEnded = { [self] in

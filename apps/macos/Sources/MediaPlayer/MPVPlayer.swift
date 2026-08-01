@@ -197,6 +197,13 @@ final class MPVPlayer: ObservableObject {
         mpv_set_property_string(mpv, "af", on ? "dynaudnorm=g=5:f=250:r=0.9:p=0.5" : "")
     }
 
+    /// Attach an external subtitle to the playing file. `select` picks it
+    /// immediately; otherwise it just becomes available in the track list.
+    func addSubtitle(url: String, title: String?, lang: String?, select: Bool = false) {
+        command("sub-add", url, select ? "select" : "auto",
+                title ?? "External", lang ?? "und")
+    }
+
     func setString(_ name: String, _ value: String) {
         guard let mpv else { return }
         mpv_set_property_string(mpv, name, value)

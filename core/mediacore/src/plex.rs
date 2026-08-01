@@ -75,6 +75,14 @@ pub struct PlexEpisode {
     pub duration_secs: Option<f64>,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PlexSubtitle {
+    pub url: String,
+    pub lang: Option<String>,
+    pub title: Option<String>,
+    pub codec: Option<String>,
+}
+
 #[derive(Deserialize)]
 struct Envelope<T> {
     #[serde(rename = "MediaContainer")]
@@ -175,6 +183,22 @@ struct Media {
 #[derive(Deserialize)]
 struct Part {
     key: String,
+    #[serde(rename = "Stream", default)]
+    streams: Vec<StreamRaw>,
+}
+
+#[derive(Deserialize)]
+struct StreamRaw {
+    #[serde(rename = "streamType")]
+    stream_type: u8,
+    /// Present only for external/sidecar subtitles (incl. agent downloads).
+    key: Option<String>,
+    #[serde(rename = "languageTag")]
+    language_tag: Option<String>,
+    language: Option<String>,
+    #[serde(rename = "displayTitle")]
+    display_title: Option<String>,
+    codec: Option<String>,
 }
 
 const CLIENT_ID: &str = "dev.mediaplayer.app";
@@ -577,6 +601,37 @@ impl PlexSource {
             .into_iter()
             .find(|r| r.provides.contains("server") && r.client_identifier == machine)
             .and_then(|r| r.access_token)
+    }
+
+    /// External subtitle streams for one item — sidecar files next to the
+    /// media and anything Plex agents (e.g. OpenSubtitles) downloaded.
+    pub async fn subtitles(&self, rating_key: &str) -> Vec<PlexSubtitle> {
+        let Some(list): Option<ItemList> = self
+            .get(&format!("/library/metadata/{rating_key}"))
+            .await
+        else {
+            return Vec::new();
+        };
+        let token = self.media_token.as_deref().unwrap_or(&self.token);
+        let mut out = Vec::new();
+        for item in &list.items {
+            for media in &item.media {
+                for part in &media.parts {
+                    for s in &part.streams {
+                        // streamType 3 = subtitle; only external ones have a key.
+                        let (3, Some(key)) = (s.stream_type, s.key.as_ref()) else { continue };
+                        let sep = if key.contains('?') { '&' } else { '?' };
+                        out.push(PlexSubtitle {
+                            url: format!("{}{}{sep}X-Plex-Token={token}", self.base, key),
+                            lang: s.language_tag.clone().or_else(|| s.language.clone()),
+                            title: s.display_title.clone(),
+                            codec: s.codec.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        out
     }
 
     pub async fn episodes(&self) -> Vec<PlexEpisode> {

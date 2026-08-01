@@ -276,6 +276,23 @@ final class StreamerManager: ObservableObject {
         return try? JSONDecoder().decode(PlexLoginResult.self, from: data)
     }
 
+    struct PlexSubtitle: Codable, Hashable {
+        let url: String
+        let lang: String?
+        let title: String?
+        let codec: String?
+    }
+
+    /// External subtitles Plex manages for an item (sidecar files and
+    /// agent downloads such as OpenSubtitles).
+    func plexSubtitles(ratingKey: String) async -> [PlexSubtitle] {
+        guard let baseURL else { return [] }
+        var comps = URLComponents(url: baseURL.appendingPathComponent("plex/subtitles"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "rating_key", value: ratingKey)]
+        guard let (data, _) = try? await URLSession.shared.data(from: comps.url!) else { return [] }
+        return (try? JSONDecoder().decode([PlexSubtitle].self, from: data)) ?? []
+    }
+
     struct PlexMarker: Codable, Hashable {
         let kind: String     // "intro" | "credits" | "commercial"
         let start_secs: Double

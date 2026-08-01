@@ -1,49 +1,74 @@
-# MediaPlayer
+# mediaplayer
 
-Open-source, Infuse-style media player for Apple platforms: hardware-decoded 4K HDR
-playback of high-bitrate MKV/REMUX files streamed directly from network shares.
+An open-source, Infuse-style media player for **macOS, iOS and tvOS** — a
+beautiful native front-end for your Plex server (and plain SMB shares) with
+hardware-decoded 4K HDR playback.
+
+![Library](docs/library.png)
+
+## Features
+
+**Playback** — built on [MPVKit](https://github.com/mpvkit/MPVKit) (libmpv, LGPL build)
+- Hardware decoding via VideoToolbox, `gpu-next` rendering through Vulkan/MoltenVK
+- 4K HDR10 / Dolby Vision tone-mapping tuned out of the box
+- Skip Intro / Skip Ads / Next Episode from Plex markers — button or fully automatic
+- Next-episode autoplay, resume positions, per-user watch state
+- External subtitles managed by Plex (sidecar files and OpenSubtitles agent
+  downloads) load automatically, with preferred-language auto-select
+- Track pickers, subtitle scale/sync, audio sync, speed, volume boost
+
+**Library**
+- Sign in with Plex (PIN flow) — that's the whole onboarding
+- Plex Home profiles with genuinely separate watch histories; restricted
+  (Kids) profiles enforced server-side
+- Server-driven Continue Watching, ratings, watched toggles
+- Rotating hero of recent movies and shows — swipe, trackpad-scroll, or dots
+- Streaming-service style detail pages: full backdrops, season pills,
+  episode stills with synopses and progress
+- Direct SMB browsing, and a TMDB-enriched local library when Plex isn't around
+- Settings: General / Files / Playback / Audio / Languages (skip lengths,
+  auto intro skip, channel layout, Dolby passthrough, preferred languages)
+
+**Design** — true-black monochrome UI, red reserved for progress bars.
 
 ## Architecture
 
 ```
-SwiftUI app (macOS first; iOS/tvOS later)
- ├── PlayerView ── libmpv (MPVKit) ── Metal render, VideoToolbox hwdec, libass, PGS
- ├── FileBrowser
- │        │ FFI (UniFFI)
- │        ▼
- └── mediacore (Rust)
-        ├── SMB client (async, tokio)
-        ├── loopback HTTP streamer (Range requests → mpv plays http://127.0.0.1:PORT/…)
-        └── (M2) indexer: SQLite + TMDB
+apps/macos     SwiftUI app (the UI is shared by all three platforms)
+apps/ios       iOS + tvOS targets (XcodeGen, reuse the macOS sources)
+core/mediacore Rust engine: SMB client, loopback HTTP streamer with Range
+               support, SQLite index, Plex + TMDB clients (axum, smb-rs,
+               rusqlite, reqwest) — UniFFI bridge on iOS/tvOS,
+               helper daemon on macOS
 ```
 
-- **Playback core:** [libmpv](https://mpv.io) via [MPVKit](https://github.com/mpvkit/MPVKit)
-  — zero-copy VideoToolbox decoding, gpu-next/libplacebo tone mapping (HDR10, DV P5/P8),
-  AV sync, libass and PGS subtitle rendering out of the box.
-- **Network layer:** Rust crate `core/mediacore` exposes network files to mpv through a
-  localhost HTTP server with Range support instead of mpv's stream plugin API.
+The engine exposes everything (library, streams, Plex auth/users/markers/
+subtitles) as a localhost HTTP API the apps consume; mpv streams from it
+with plain Range requests.
 
-## Layout
+## Building
 
-| Path | Purpose |
-|---|---|
-| `apps/macos/` | SwiftUI macOS app |
-| `core/mediacore/` | Rust workspace: SMB client, streamer, FFI |
-| `docs/` | Design notes |
-| `scripts/` | Build orchestration (cargo → xcframework → Xcode) |
+```sh
+# macOS app bundle
+./scripts/bundle-macos.sh          # → apps/macos/.build/MediaPlayer.app
 
-## Milestones
+# Rust xcframework for iOS/tvOS, then the Xcode projects
+./scripts/build-xcframework.sh
+cd apps/ios && xcodegen generate
+xcodebuild -project MediaPlayeriOS.xcodeproj -scheme MediaPlayeriOS build
+```
 
-- **M0** — local-file playback via MPVKit, basic controls, hwdec verification
-- **M1** — SMB browsing + streaming (Rust core, loopback streamer)
-- **M2** — library: SQLite index, TMDB metadata, artwork, watch state
-- **M3** — iOS/tvOS, audio passthrough research, NFS/WebDAV
+Requires Xcode 15+, Rust (with the Apple targets), and XcodeGen.
 
-## Prerequisites
+## Roadmap
 
-- Full Xcode (not just Command Line Tools): `xcode-select -s /Applications/Xcode.app`
-- Rust: `curl https://sh.rustup.rs -sSf | sh`
+- Jellyfin & Emby sources
+- Offline downloads
+- Real-device deployment + TestFlight
+- tvOS remote polish
 
 ## License
 
-GPL-2.0-or-later (required by the libmpv/FFmpeg dependency chain).
+License for this repository's code: to be finalized by the author — the app
+now links MPVKit's **LGPL** build of mpv/FFmpeg (App Store-compatible), so
+the code is no longer required to be GPL. See MPVKit for its licenses.
