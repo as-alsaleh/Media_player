@@ -21,6 +21,8 @@ final class MPVPlayer: ObservableObject {
     private var eventThread: Thread?
     /// URL requested before the render surface existed; applied on attach.
     private var pendingLoad: URL?
+    private var currentURL: URL?
+    private var retriesLeft = 0
 
     func attach(layer: CAMetalLayer) {
         guard mpv == nil else { return }
@@ -62,6 +64,8 @@ final class MPVPlayer: ObservableObject {
         setOption("cache", "yes")
         setOption("demuxer-max-bytes", "256MiB")
         setOption("demuxer-readahead-secs", "60")
+        // Ride out transient HTTP hiccups (Plex occasionally 503s under load).
+        setOption("stream-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5")
 
         mpv_initialize(handle)
 
@@ -97,6 +101,8 @@ final class MPVPlayer: ObservableObject {
             pendingLoad = url
             return
         }
+        currentURL = url
+        retriesLeft = 3
         command("loadfile", url.isFileURL ? url.path : url.absoluteString)
         setProperty("pause", flag: false)
     }
@@ -156,6 +162,17 @@ final class MPVPlayer: ObservableObject {
             case MPV_EVENT_PROPERTY_CHANGE:
                 let prop = event.data.assumingMemoryBound(to: mpv_event_property.self).pointee
                 handlePropertyChange(prop)
+            case MPV_EVENT_END_FILE:
+                let end = event.data.assumingMemoryBound(to: mpv_event_end_file.self).pointee
+                if end.reason == MPV_END_FILE_REASON_ERROR {
+                    // Transient server error (e.g. Plex 503) — retry shortly.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                        guard let self, self.retriesLeft > 0, let url = self.currentURL else { return }
+                        self.retriesLeft -= 1
+                        self.command("loadfile", url.isFileURL ? url.path : url.absoluteString)
+                        self.setProperty("pause", flag: false)
+                    }
+                }
             default:
                 break
             }

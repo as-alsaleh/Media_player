@@ -29,6 +29,8 @@ struct ContentView: View {
     @State private var pendingResume: Double?
     @State private var refreshTick = 0
     @State private var markers: [StreamerManager.PlexMarker] = []
+    @State private var controlsVisible = true
+    @State private var hideWork: DispatchWorkItem?
 
     private let progressTimer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
@@ -92,74 +94,143 @@ struct ContentView: View {
         }
     }
 
+    private func pokeControls() {
+        withAnimation(.easeOut(duration: 0.15)) { controlsVisible = true }
+        NSCursor.unhide()
+        hideWork?.cancel()
+        let work = DispatchWorkItem {
+            if !player.isPaused {
+                withAnimation(.easeOut(duration: 0.4)) { controlsVisible = false }
+                NSCursor.setHiddenUntilMouseMoves(true)
+            }
+        }
+        hideWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: work)
+    }
+
+    private func closePlayer() {
+        if !player.isPaused { player.togglePause() }
+        saveProgress()
+        showPlayer = false
+        refreshTick += 1  // re-pull library so Continue Watching updates
+    }
+
     private var playerOverlay: some View {
-        ZStack(alignment: .top) {
+        ZStack {
             Color.black.ignoresSafeArea()
-            VStack(spacing: 0) {
-                ZStack(alignment: .bottomTrailing) {
-                    PlayerView(player: player)
-                    if let marker = activeMarker {
+            PlayerView(player: player)
+                .ignoresSafeArea()
+
+            // Top gradient: back, title, codec badge.
+            VStack {
+                HStack(spacing: 12) {
+                    Button(action: closePlayer) {
+                        Image(systemName: "chevron.backward")
+                            .font(.system(size: 16, weight: .bold))
+                            .frame(width: 34, height: 34)
+                            .background(.white.opacity(0.15), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    Text(nowPlaying)
+                        .font(.system(size: 16, weight: .semibold))
+                        .lineLimit(1)
+                    Spacer()
+                    if !player.hwdecCurrent.isEmpty {
+                        Label(player.hwdecCurrent.uppercased(), systemImage: "bolt.fill")
+                            .font(.system(size: 10, weight: .bold))
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(.white.opacity(0.12), in: Capsule())
+                    }
+                }
+                .padding(.horizontal, 22)
+                .padding(.top, 16)
+                .padding(.bottom, 30)
+                .background(
+                    LinearGradient(colors: [.black.opacity(0.65), .clear],
+                                   startPoint: .top, endPoint: .bottom))
+                Spacer()
+            }
+            .opacity(controlsVisible ? 1 : 0)
+
+            // Skip marker button rides above the control bar.
+            if let marker = activeMarker {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
                         Button {
                             player.seek(to: marker.end_secs)
                         } label: {
                             Text(skipLabel(marker.kind))
                                 .font(.system(size: 15, weight: .bold))
-                                .padding(.horizontal, 22).padding(.vertical, 11)
-                                .background(.white, in: RoundedRectangle(cornerRadius: 4))
+                                .padding(.horizontal, 24).padding(.vertical, 12)
+                                .background(.white, in: RoundedRectangle(cornerRadius: 6))
                                 .foregroundStyle(.black)
                         }
                         .buttonStyle(.plain)
-                        .padding(24)
-                        .transition(.opacity)
+                        .padding(.trailing, 28)
+                        .padding(.bottom, controlsVisible ? 120 : 40)
                     }
                 }
-                controls
+                .transition(.opacity)
             }
-            HStack {
-                Button {
-                    if !player.isPaused { player.togglePause() }
-                    saveProgress()
-                    showPlayer = false
-                    refreshTick += 1  // re-pull library so Continue Watching updates
-                } label: {
-                    Image(systemName: "chevron.backward.circle.fill").font(.title)
-                }
-                .buttonStyle(.plain)
-                Text(nowPlaying).font(.headline).lineLimit(1)
+
+            // Bottom control bar.
+            VStack {
                 Spacer()
-                if !player.hwdecCurrent.isEmpty {
-                    Text(player.hwdecCurrent)
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.green.opacity(0.25), in: Capsule())
+                VStack(spacing: 10) {
+                    HStack(spacing: 12) {
+                        Text(format(player.timePos))
+                            .font(.system(size: 12, weight: .medium).monospacedDigit())
+                            .foregroundStyle(.white.opacity(0.85))
+                        Slider(
+                            value: Binding(
+                                get: { player.timePos },
+                                set: { player.seek(to: $0) }
+                            ),
+                            in: 0...max(player.duration, 1)
+                        )
+                        .tint(Color(red: 0.9, green: 0.15, blue: 0.13))
+                        .controlSize(.small)
+                        Text(format(player.duration))
+                            .font(.system(size: 12, weight: .medium).monospacedDigit())
+                            .foregroundStyle(.white.opacity(0.85))
+                    }
+
+                    HStack(spacing: 26) {
+                        Button { player.seek(to: max(player.timePos - 15, 0)) } label: {
+                            Image(systemName: "gobackward.15").font(.system(size: 20))
+                        }
+                        .buttonStyle(.plain)
+                        Button { player.togglePause() } label: {
+                            Image(systemName: player.isPaused ? "play.fill" : "pause.fill")
+                                .font(.system(size: 26))
+                                .frame(width: 52, height: 52)
+                                .background(.white.opacity(0.14), in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .keyboardShortcut(.space, modifiers: [])
+                        Button { player.seek(to: player.timePos + 30) } label: {
+                            Image(systemName: "goforward.30").font(.system(size: 20))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .foregroundStyle(.white)
                 }
+                .padding(.horizontal, 26)
+                .padding(.vertical, 16)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                .padding(.horizontal, 40)
+                .padding(.bottom, 22)
             }
-            .padding(12)
-            .foregroundStyle(.white.opacity(0.9))
+            .opacity(controlsVisible ? 1 : 0)
+            .allowsHitTesting(controlsVisible)
         }
-    }
-
-    private var controls: some View {
-        HStack(spacing: 12) {
-            Button(action: { player.togglePause() }) {
-                Image(systemName: player.isPaused ? "play.fill" : "pause.fill")
-            }
-            .keyboardShortcut(.space, modifiers: [])
-
-            Slider(
-                value: Binding(
-                    get: { player.timePos },
-                    set: { player.seek(to: $0) }
-                ),
-                in: 0...max(player.duration, 1)
-            )
-
-            Text("\(format(player.timePos)) / \(format(player.duration))")
-                .font(.caption.monospacedDigit())
+        .onContinuousHover { phase in
+            if case .active = phase { pokeControls() }
         }
-        .padding(10)
-        .background(.black)
+        .onAppear(perform: pokeControls)
+        .onChange(of: player.isPaused) { if player.isPaused { pokeControls() } }
     }
 
     private func startPlayback(url: URL, title: String, path: String, resume: Double?) {
