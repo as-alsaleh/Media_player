@@ -60,7 +60,11 @@ final class MPVPlayer: ObservableObject {
         // Allow `MediaPlayer /path/to/file` for headless/scripted testing.
         if CommandLine.arguments.count > 1 {
             let arg = CommandLine.arguments[1]
-            load(url: URL(fileURLWithPath: arg))
+            if arg.contains("://"), let url = URL(string: arg) {
+                load(url: url)
+            } else {
+                load(url: URL(fileURLWithPath: arg))
+            }
         }
     }
 
