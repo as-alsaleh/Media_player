@@ -6,6 +6,8 @@ let accentA = Color.white
 let accentB = Color.white
 let accentGradient = LinearGradient(
     colors: [.white, .white], startPoint: .leading, endPoint: .trailing)
+/// Progress fills stay red so watch state pops against the monochrome UI.
+let progressRed = Color(red: 0.95, green: 0.18, blue: 0.16)
 
 #if os(macOS)
 let edgePad: CGFloat = 48
@@ -741,7 +743,7 @@ struct PosterCard: View {
             ZStack(alignment: .leading) {
                 Rectangle().fill(.white.opacity(0.25))
                 Rectangle()
-                    .fill(accentGradient)
+                    .fill(progressRed)
                     .frame(width: geo.size.width * min(max(fraction, 0), 1))
             }
         }
@@ -780,7 +782,7 @@ struct ContinueCard: View {
                                 ZStack(alignment: .leading) {
                                     Rectangle().fill(.white.opacity(0.3))
                                     Rectangle()
-                                        .fill(accentGradient)
+                                        .fill(progressRed)
                                         .frame(width: geo.size.width * min(max(progress, 0), 1))
                                 }
                             }
@@ -1018,7 +1020,7 @@ struct ShowDetailSheet: View {
                 if let o = ep.view_offset_secs, let d = ep.duration_secs, d > 0 {
                     ProgressView(value: o / d)
                         .frame(width: 60)
-                        .tint(accentA)
+                        .tint(progressRed)
                 }
             }
             .contentShape(Rectangle())
