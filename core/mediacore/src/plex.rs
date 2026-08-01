@@ -25,6 +25,7 @@ pub struct PlexMovie {
     /// Server-side resume point, seconds.
     pub view_offset_secs: Option<f64>,
     pub watched: bool,
+    pub last_viewed_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -53,6 +54,7 @@ pub struct PlexEpisode {
     pub rating_key: String,
     pub view_offset_secs: Option<f64>,
     pub watched: bool,
+    pub last_viewed_at: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -100,6 +102,8 @@ struct Item {
     view_offset: Option<u64>,
     #[serde(rename = "viewCount")]
     view_count: Option<u32>,
+    #[serde(rename = "lastViewedAt")]
+    last_viewed_at: Option<u64>,
     #[serde(rename = "Media", default)]
     media: Vec<Media>,
 }
@@ -193,6 +197,7 @@ impl PlexSource {
                     rating_key: item.rating_key.clone(),
                     view_offset_secs: item.offset_secs(),
                     watched: item.watched(),
+                    last_viewed_at: item.last_viewed_at,
                 });
             }
         }
@@ -327,6 +332,7 @@ impl PlexSource {
                     rating_key: item.rating_key.clone(),
                     view_offset_secs: item.offset_secs(),
                     watched: item.watched(),
+                    last_viewed_at: item.last_viewed_at,
                 });
             }
         }

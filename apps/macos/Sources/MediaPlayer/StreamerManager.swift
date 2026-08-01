@@ -116,6 +116,7 @@ final class StreamerManager: ObservableObject {
         let source: String
         let view_offset_secs: Double?
         let watched: Bool
+        let last_viewed_at: UInt64?
         var id: String { uid }
     }
 
@@ -140,6 +141,7 @@ final class StreamerManager: ObservableObject {
         let source: String
         let view_offset_secs: Double?
         let watched: Bool
+        let last_viewed_at: UInt64?
         var id: String { uid }
     }
 

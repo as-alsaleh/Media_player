@@ -27,13 +27,14 @@ struct ContentView: View {
     @State private var nowPlaying = ""
     @State private var nowPlayingPath: String?
     @State private var pendingResume: Double?
+    @State private var refreshTick = 0
 
     private let progressTimer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ZStack {
             if streamer.baseURL != nil {
-                BrowseView(streamer: streamer, onPlay: startPlayback)
+                BrowseView(streamer: streamer, refreshTick: refreshTick, onPlay: startPlayback)
             } else {
                 setup
             }
@@ -86,6 +87,7 @@ struct ContentView: View {
                     if !player.isPaused { player.togglePause() }
                     saveProgress()
                     showPlayer = false
+                    refreshTick += 1  // re-pull library so Continue Watching updates
                 } label: {
                     Image(systemName: "chevron.backward.circle.fill").font(.title)
                 }
@@ -127,11 +129,11 @@ struct ContentView: View {
         .background(.black)
     }
 
-    private func startPlayback(url: URL, title: String, path: String) {
+    private func startPlayback(url: URL, title: String, path: String, resume: Double?) {
         saveProgress()
         nowPlaying = title
         nowPlayingPath = path
-        pendingResume = WatchProgress.position(for: path)
+        pendingResume = resume
         showPlayer = true
         player.load(url: url)
     }

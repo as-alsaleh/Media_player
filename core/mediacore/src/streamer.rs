@@ -48,6 +48,15 @@ struct MovieOut {
     /// Server-side resume point (Plex), seconds.
     view_offset_secs: Option<f64>,
     watched: bool,
+    last_viewed_at: Option<u64>,
+}
+
+/// Loose identity for cross-source dedup: lowercase alphanumerics only.
+fn norm(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
 }
 
 #[derive(serde::Serialize)]
@@ -72,6 +81,7 @@ struct EpisodeOut {
     source: &'static str,
     view_offset_secs: Option<f64>,
     watched: bool,
+    last_viewed_at: Option<u64>,
 }
 
 fn local_stream_url(path: &str) -> String {
@@ -191,104 +201,144 @@ async fn library_scan(
 }
 
 async fn library_movies(State(st): State<AppState>) -> Response {
-    let mut out: Vec<MovieOut> = Vec::new();
+    // Keyed by normalized title(+year); Plex wins on collision because it
+    // carries watch state and richer metadata.
+    let mut map: HashMap<String, MovieOut> = HashMap::new();
     if let Some(Ok(rows)) = st.index.as_ref().map(|i| i.movies()) {
-        out.extend(rows.into_iter().map(|m| MovieOut {
-            uid: format!("local-m{}", m.id),
-            title: m.title,
-            year: m.year,
-            poster_url: m.poster_url,
-            backdrop_url: m.backdrop_url,
-            overview: m.overview,
-            stream_url: local_stream_url(&m.path),
-            progress_key: m.path,
-            source: "local",
-            view_offset_secs: None,
-            watched: false,
-        }));
+        for m in rows {
+            let key = format!("{}|{}", norm(&m.title), m.year.unwrap_or(0));
+            map.insert(
+                key,
+                MovieOut {
+                    uid: format!("local-m{}", m.id),
+                    title: m.title,
+                    year: m.year,
+                    poster_url: m.poster_url,
+                    backdrop_url: m.backdrop_url,
+                    overview: m.overview,
+                    stream_url: local_stream_url(&m.path),
+                    progress_key: m.path,
+                    source: "local",
+                    view_offset_secs: None,
+                    watched: false,
+                    last_viewed_at: None,
+                },
+            );
+        }
     }
     if let Some(plex) = &st.plex {
-        out.extend(plex.movies().await.into_iter().map(|m| MovieOut {
-            uid: format!("plex-m{}", m.rating_key),
-            title: m.title,
-            year: m.year,
-            poster_url: m.poster_url,
-            backdrop_url: m.backdrop_url,
-            overview: m.overview,
-            stream_url: m.stream_url,
-            progress_key: format!("plex:{}", m.rating_key),
-            source: "plex",
-            view_offset_secs: m.view_offset_secs,
-            watched: m.watched,
-        }));
+        for m in plex.movies().await {
+            let key = format!("{}|{}", norm(&m.title), m.year.unwrap_or(0));
+            map.insert(
+                key,
+                MovieOut {
+                    uid: format!("plex-m{}", m.rating_key),
+                    title: m.title,
+                    year: m.year,
+                    poster_url: m.poster_url,
+                    backdrop_url: m.backdrop_url,
+                    overview: m.overview,
+                    stream_url: m.stream_url,
+                    progress_key: format!("plex:{}", m.rating_key),
+                    source: "plex",
+                    view_offset_secs: m.view_offset_secs,
+                    watched: m.watched,
+                    last_viewed_at: m.last_viewed_at,
+                },
+            );
+        }
     }
+    let mut out: Vec<MovieOut> = map.into_values().collect();
     out.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
-    out.dedup_by(|a, b| a.title == b.title && a.year == b.year);
     Json(out).into_response()
 }
 
 async fn library_episodes(State(st): State<AppState>) -> Response {
-    let mut out: Vec<EpisodeOut> = Vec::new();
+    let mut map: HashMap<String, EpisodeOut> = HashMap::new();
     if let Some(Ok(rows)) = st.index.as_ref().map(|i| i.episodes()) {
-        out.extend(rows.into_iter().map(|e| EpisodeOut {
-            uid: format!("local-e{}", e.id),
-            show: e.show,
-            season: e.season,
-            episode: e.episode,
-            stream_url: local_stream_url(&e.path),
-            progress_key: e.path,
-            source: "local",
-            view_offset_secs: None,
-            watched: false,
-        }));
+        for e in rows {
+            let key = format!("{}|{}|{}", norm(&e.show), e.season, e.episode);
+            map.insert(
+                key,
+                EpisodeOut {
+                    uid: format!("local-e{}", e.id),
+                    show: e.show,
+                    season: e.season,
+                    episode: e.episode,
+                    stream_url: local_stream_url(&e.path),
+                    progress_key: e.path,
+                    source: "local",
+                    view_offset_secs: None,
+                    watched: false,
+                    last_viewed_at: None,
+                },
+            );
+        }
     }
     if let Some(plex) = &st.plex {
-        out.extend(plex.episodes().await.into_iter().map(|e| EpisodeOut {
-            uid: format!("plex-e{}", e.rating_key),
-            show: e.show,
-            season: e.season,
-            episode: e.episode,
-            stream_url: e.stream_url,
-            progress_key: format!("plex:{}", e.rating_key),
-            source: "plex",
-            view_offset_secs: e.view_offset_secs,
-            watched: e.watched,
-        }));
+        for e in plex.episodes().await {
+            let key = format!("{}|{}|{}", norm(&e.show), e.season, e.episode);
+            map.insert(
+                key,
+                EpisodeOut {
+                    uid: format!("plex-e{}", e.rating_key),
+                    show: e.show,
+                    season: e.season,
+                    episode: e.episode,
+                    stream_url: e.stream_url,
+                    progress_key: format!("plex:{}", e.rating_key),
+                    source: "plex",
+                    view_offset_secs: e.view_offset_secs,
+                    watched: e.watched,
+                    last_viewed_at: e.last_viewed_at,
+                },
+            );
+        }
     }
+    let mut out: Vec<EpisodeOut> = map.into_values().collect();
     out.sort_by(|a, b| {
         (a.show.to_lowercase(), a.season, a.episode)
             .cmp(&(b.show.to_lowercase(), b.season, b.episode))
     });
-    out.dedup_by(|a, b| a.show == b.show && a.season == b.season && a.episode == b.episode);
     Json(out).into_response()
 }
 
 async fn library_shows(State(st): State<AppState>) -> Response {
-    let mut out: Vec<ShowOut> = Vec::new();
+    let mut map: HashMap<String, ShowOut> = HashMap::new();
     if let Some(Ok(rows)) = st.index.as_ref().map(|i| i.shows()) {
-        out.extend(rows.into_iter().map(|s| ShowOut {
-            uid: format!("local-s{}", s.name),
-            name: s.name,
-            episode_count: s.episode_count,
-            poster_url: s.poster_url,
-            backdrop_url: s.backdrop_url,
-            overview: s.overview,
-            source: "local",
-        }));
+        for s in rows {
+            map.insert(
+                norm(&s.name),
+                ShowOut {
+                    uid: format!("local-s{}", s.name),
+                    name: s.name,
+                    episode_count: s.episode_count,
+                    poster_url: s.poster_url,
+                    backdrop_url: s.backdrop_url,
+                    overview: s.overview,
+                    source: "local",
+                },
+            );
+        }
     }
     if let Some(plex) = &st.plex {
-        out.extend(plex.shows().await.into_iter().map(|s| ShowOut {
-            uid: format!("plex-s{}", s.name),
-            name: s.name,
-            episode_count: s.episode_count,
-            poster_url: s.poster_url,
-            backdrop_url: s.backdrop_url,
-            overview: s.overview,
-            source: "plex",
-        }));
+        for s in plex.shows().await {
+            map.insert(
+                norm(&s.name),
+                ShowOut {
+                    uid: format!("plex-s{}", s.name),
+                    name: s.name,
+                    episode_count: s.episode_count,
+                    poster_url: s.poster_url,
+                    backdrop_url: s.backdrop_url,
+                    overview: s.overview,
+                    source: "plex",
+                },
+            );
+        }
     }
+    let mut out: Vec<ShowOut> = map.into_values().collect();
     out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    out.dedup_by(|a, b| a.name.to_lowercase() == b.name.to_lowercase());
     Json(out).into_response()
 }
 

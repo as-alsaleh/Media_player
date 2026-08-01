@@ -3,7 +3,9 @@ import SwiftUI
 /// Netflix-style home: hero banner + horizontal carousels on a dark canvas.
 struct BrowseView: View {
     @ObservedObject var streamer: StreamerManager
-    let onPlay: (URL, String, String) -> Void   // url, title, share path
+    /// Reloads the library whenever this changes (e.g. after playback ends).
+    var refreshTick: Int = 0
+    let onPlay: (URL, String, String, Double?) -> Void   // url, title, progress key, resume secs
 
     @State private var movies: [StreamerManager.LibraryMovie] = []
     @State private var shows: [StreamerManager.LibraryShow] = []
@@ -38,7 +40,7 @@ struct BrowseView: View {
 
             toolbar
         }
-        .task(id: streamer.baseURL) {
+        .task(id: "\(streamer.baseURL?.absoluteString ?? "")|\(refreshTick)") {
             await load()
             plexUsers = (try? await streamer.plexUsers()) ?? []
         }
@@ -72,7 +74,8 @@ struct BrowseView: View {
                 .padding(10)
                 BrowserView(streamer: streamer) { url, name in
                     showFiles = false
-                    onPlay(url, name, sharePath(from: url))
+                    let key = sharePath(from: url)
+                    onPlay(url, name, key, WatchProgress.position(for: key))
                 }
             }
             .frame(width: 480, height: 560)
@@ -202,14 +205,28 @@ struct BrowseView: View {
         }
     }
 
+    /// Server-driven: Plex viewOffsets are the source of truth, ordered by
+    /// most recently watched. Local-only items fall back to the local store.
     private var continueWatching: [CardItem] {
         let positions = WatchProgress.allPositions()
-        let movieItems = movies.filter { positions[$0.progress_key] != nil }.map(CardItem.movie)
         let posterByShow = Dictionary(shows.map { ($0.name, $0.poster_url) }) { a, _ in a }
-        let epItems = episodes
-            .filter { positions[$0.progress_key] != nil }
-            .map { CardItem.episode($0, showPoster: posterByShow[$0.show] ?? nil) }
-        return movieItems + epItems
+
+        var entries: [(UInt64, CardItem)] = []
+        for m in movies {
+            if let offset = m.view_offset_secs, offset > 30 {
+                entries.append((m.last_viewed_at ?? 0, .movie(m)))
+            } else if m.source == "local", positions[m.progress_key] != nil {
+                entries.append((0, .movie(m)))
+            }
+        }
+        for e in episodes {
+            if let offset = e.view_offset_secs, offset > 30 {
+                entries.append((e.last_viewed_at ?? 0, .episode(e, showPoster: posterByShow[e.show] ?? nil)))
+            } else if e.source == "local", positions[e.progress_key] != nil {
+                entries.append((0, .episode(e, showPoster: posterByShow[e.show] ?? nil)))
+            }
+        }
+        return entries.sorted { $0.0 > $1.0 }.map(\.1)
     }
 
     private func carousel(_ title: String, items: [CardItem]) -> some View {
@@ -271,13 +288,15 @@ struct BrowseView: View {
 
     private func play(_ movie: StreamerManager.LibraryMovie) {
         if let url = streamer.resolveStream(movie.stream_url) {
-            onPlay(url, movie.title, movie.progress_key)
+            let resume = movie.view_offset_secs ?? WatchProgress.position(for: movie.progress_key)
+            onPlay(url, movie.title, movie.progress_key, resume)
         }
     }
 
     private func play(_ ep: StreamerManager.LibraryEpisode) {
         if let url = streamer.resolveStream(ep.stream_url) {
-            onPlay(url, "\(ep.show) S\(ep.season)E\(ep.episode)", ep.progress_key)
+            let resume = ep.view_offset_secs ?? WatchProgress.position(for: ep.progress_key)
+            onPlay(url, "\(ep.show) S\(ep.season)E\(ep.episode)", ep.progress_key, resume)
         }
     }
 
@@ -291,17 +310,6 @@ struct BrowseView: View {
         movies = (try? await streamer.libraryMovies()) ?? []
         shows = (try? await streamer.libraryShows()) ?? []
         episodes = (try? await streamer.libraryEpisodes()) ?? []
-        // Adopt Plex server-side watch history as resume points.
-        for m in movies {
-            if let offset = m.view_offset_secs, offset > 30 {
-                WatchProgress.seed(path: m.progress_key, position: offset)
-            }
-        }
-        for e in episodes {
-            if let offset = e.view_offset_secs, offset > 30 {
-                WatchProgress.seed(path: e.progress_key, position: offset)
-            }
-        }
     }
 
     private func switchTo(_ user: StreamerManager.PlexUser) {
@@ -368,7 +376,7 @@ struct ShowDetailSheet: View {
     let show: StreamerManager.LibraryShow
     let episodes: [StreamerManager.LibraryEpisode]
     @ObservedObject var streamer: StreamerManager
-    let onPlay: (URL, String, String) -> Void
+    let onPlay: (URL, String, String, Double?) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
@@ -415,7 +423,9 @@ struct ShowDetailSheet: View {
                             Button {
                                 if let url = streamer.resolveStream(ep.stream_url) {
                                     dismiss()
-                                    onPlay(url, "\(show.name) S\(ep.season)E\(ep.episode)", ep.progress_key)
+                                    let resume = ep.view_offset_secs
+                                        ?? WatchProgress.position(for: ep.progress_key)
+                                    onPlay(url, "\(show.name) S\(ep.season)E\(ep.episode)", ep.progress_key, resume)
                                 }
                             } label: {
                                 HStack {
