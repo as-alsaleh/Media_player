@@ -23,6 +23,8 @@ final class MPVPlayer: ObservableObject {
     private var pendingLoad: URL?
     private var currentURL: URL?
     private var retriesLeft = 0
+    /// Called on the main queue when playback reaches the end of the file.
+    var onFileEnded: (() -> Void)?
 
     func attach(layer: CAMetalLayer) {
         guard mpv == nil else { return }
@@ -74,6 +76,7 @@ final class MPVPlayer: ObservableObject {
         observe("duration", MPV_FORMAT_DOUBLE)
         observe("hwdec-current", MPV_FORMAT_STRING)
         observe("media-title", MPV_FORMAT_STRING)
+        observe("eof-reached", MPV_FORMAT_FLAG)
 
         let thread = Thread { [weak self] in self?.eventLoop() }
         thread.name = "mpv-events"
@@ -215,6 +218,9 @@ final class MPVPlayer: ObservableObject {
                 handlePropertyChange(prop)
             case MPV_EVENT_END_FILE:
                 let end = event.data.assumingMemoryBound(to: mpv_event_end_file.self).pointee
+                if end.reason == MPV_END_FILE_REASON_EOF {
+                    DispatchQueue.main.async { [weak self] in self?.onFileEnded?() }
+                }
                 if end.reason == MPV_END_FILE_REASON_ERROR {
                     // Transient server error (e.g. Plex 503) — retry shortly.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
@@ -250,6 +256,10 @@ final class MPVPlayer: ObservableObject {
             case ("hwdec-current", MPV_FORMAT_STRING):
                 if let cstr = prop.data?.assumingMemoryBound(to: UnsafePointer<CChar>?.self).pointee {
                     self.hwdecCurrent = String(cString: cstr)
+                }
+            case ("eof-reached", MPV_FORMAT_FLAG):
+                if let v = prop.data?.assumingMemoryBound(to: Int32.self).pointee, v != 0 {
+                    self.onFileEnded?()
                 }
             case ("media-title", MPV_FORMAT_STRING):
                 if let cstr = prop.data?.assumingMemoryBound(to: UnsafePointer<CChar>?.self).pointee {

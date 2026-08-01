@@ -160,16 +160,21 @@ struct ContentView: View {
             }
             .opacity(controlsVisible ? 1 : 0)
 
-            // Skip marker button rides above the control bar.
+            // Skip marker / Next Episode button rides above the control bar.
             if let marker = activeMarker {
                 VStack {
                     Spacer()
                     HStack {
                         Spacer()
                         Button {
-                            player.seek(to: marker.end_secs)
+                            if marker.kind == "credits", let next = NowPlaying.nextEpisode {
+                                next()
+                            } else {
+                                player.seek(to: marker.end_secs)
+                            }
                         } label: {
-                            Text(skipLabel(marker.kind))
+                            Text(marker.kind == "credits" && NowPlaying.nextEpisode != nil
+                                 ? "Next Episode  ▶" : skipLabel(marker.kind))
                                 .font(.system(size: 15, weight: .bold))
                                 .padding(.horizontal, 24).padding(.vertical, 12)
                                 .background(.white, in: RoundedRectangle(cornerRadius: 6))
@@ -253,6 +258,14 @@ struct ContentView: View {
         if path.hasPrefix("plex:") {
             let key = String(path.dropFirst("plex:".count))
             Task { markers = await streamer.plexMarkers(ratingKey: key) }
+        }
+
+        player.onFileEnded = {
+            if let next = NowPlaying.nextEpisode {
+                next()
+            } else {
+                closePlayer()
+            }
         }
     }
 

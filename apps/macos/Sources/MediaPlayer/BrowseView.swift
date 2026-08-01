@@ -50,6 +50,14 @@ struct CompatSlider: View {
     }
 }
 
+/// What comes after the current item — set when an episode starts playing
+/// so the player can offer "Next Episode" and auto-advance at the end.
+@MainActor
+enum NowPlaying {
+    static var nextEpisode: (() -> Void)?
+    static var nextLabel: String?
+}
+
 /// Netflix-style home: fixed top nav, cinematic hero, carousels.
 struct BrowseView: View {
     @ObservedObject var streamer: StreamerManager
@@ -74,7 +82,12 @@ struct BrowseView: View {
     @State private var plexUsers: [StreamerManager.PlexUser] = []
     @State private var pinPromptUser: StreamerManager.PlexUser?
     @State private var pinInput = ""
+    @State private var searchText = ""
     @AppStorage("plexActiveUserName") private var activeUserName = ""
+
+    private func matches(_ title: String) -> Bool {
+        searchText.isEmpty || title.localizedCaseInsensitiveContains(searchText)
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -116,7 +129,9 @@ struct BrowseView: View {
                     onPlay(url, name, key, WatchProgress.position(for: key))
                 }
             }
+            #if os(macOS)
             .frame(width: 480, height: 560)
+            #endif
         }
         .alert("PIN for \(pinPromptUser?.title ?? "")", isPresented: .init(
             get: { pinPromptUser != nil },
@@ -210,10 +225,36 @@ struct BrowseView: View {
         ScrollView(.vertical, showsIndicators: false) {
             switch tab {
             case .home: homeContent
-            case .movies: gridContent(items: movies.map(CardItem.movie))
-            case .shows: showGrid
+            case .movies:
+                searchField
+                gridContent(items: movies.filter { matches($0.title) }.map(CardItem.movie))
+            case .shows:
+                searchField
+                showGrid
             }
         }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Search", text: $searchText)
+                .textFieldStyle(.plain)
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .frame(maxWidth: 420)
+        .padding(.horizontal, edgePad)
+        .padding(.top, 64)
     }
 
     private var homeContent: some View {
@@ -362,6 +403,13 @@ struct BrowseView: View {
                 return o / d
             }
         }
+
+        var watched: Bool {
+            switch self {
+            case .movie(let m): return m.watched
+            case .episode(let e, _): return e.watched
+            }
+        }
     }
 
     private var continueWatching: [CardItem] {
@@ -409,7 +457,7 @@ struct BrowseView: View {
                 HStack(spacing: 10) {
                     ForEach(items) { item in
                         PosterCard(posterURL: item.poster, label: item.label,
-                                   progress: item.progress) {
+                                   progress: item.progress, watched: item.watched) {
                             tappedInfo(item)
                         }
                     }
@@ -440,25 +488,25 @@ struct BrowseView: View {
     private func gridContent(items: [CardItem]) -> some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 14)], spacing: 22) {
             ForEach(items) { item in
-                PosterCard(posterURL: item.poster, label: item.label, progress: item.progress) {
+                PosterCard(posterURL: item.poster, label: item.label, progress: item.progress, watched: item.watched) {
                     tappedInfo(item)
                 }
             }
         }
         .padding(.horizontal, edgePad)
-        .padding(.top, 70)
+        .padding(.top, 16)
     }
 
     private var showGrid: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 14)], spacing: 22) {
-            ForEach(shows) { show in
+            ForEach(shows.filter { matches($0.name) }) { show in
                 PosterCard(posterURL: show.poster_url, label: show.name, progress: nil) {
                     selectedShow = show
                 }
             }
         }
         .padding(.horizontal, edgePad)
-        .padding(.top, 70)
+        .padding(.top, 16)
     }
 
     private func sectionHeader(_ title: String) -> some View {
@@ -499,16 +547,18 @@ struct BrowseView: View {
 
     private func play(_ movie: StreamerManager.LibraryMovie) {
         if let url = streamer.resolveStream(movie.stream_url) {
+            NowPlaying.nextEpisode = nil
+            NowPlaying.nextLabel = nil
             let resume = movie.view_offset_secs ?? WatchProgress.position(for: movie.progress_key)
             onPlay(url, movie.title, movie.progress_key, resume)
         }
     }
 
     private func play(_ ep: StreamerManager.LibraryEpisode) {
-        if let url = streamer.resolveStream(ep.stream_url) {
-            let resume = ep.view_offset_secs ?? WatchProgress.position(for: ep.progress_key)
-            onPlay(url, "\(ep.show) S\(ep.season)E\(ep.episode)", ep.progress_key, resume)
-        }
+        guard let url = streamer.resolveStream(ep.stream_url) else { return }
+        setNext(after: ep, in: episodes, streamer: streamer, onPlay: onPlay)
+        let resume = ep.view_offset_secs ?? WatchProgress.position(for: ep.progress_key)
+        onPlay(url, "\(ep.show) S\(ep.season)E\(ep.episode)", ep.progress_key, resume)
     }
 
     private func sharePath(from url: URL) -> String {
@@ -547,11 +597,39 @@ struct BrowseView: View {
 
 // MARK: - Cards
 
+/// Register the episode that follows `ep` (same show, next in order) so the
+/// player can chain into it. Clears the hook when `ep` is the last one.
+@MainActor
+func setNext(
+    after ep: StreamerManager.LibraryEpisode,
+    in episodes: [StreamerManager.LibraryEpisode],
+    streamer: StreamerManager,
+    onPlay: @escaping (URL, String, String, Double?) -> Void
+) {
+    let ordered = episodes
+        .filter { $0.show == ep.show }
+        .sorted { ($0.season, $0.episode) < ($1.season, $1.episode) }
+    guard let idx = ordered.firstIndex(of: ep), idx + 1 < ordered.count else {
+        NowPlaying.nextEpisode = nil
+        NowPlaying.nextLabel = nil
+        return
+    }
+    let next = ordered[idx + 1]
+    NowPlaying.nextLabel = String(format: "S%02dE%02d", next.season, next.episode)
+    NowPlaying.nextEpisode = {
+        guard let url = streamer.resolveStream(next.stream_url) else { return }
+        setNext(after: next, in: episodes, streamer: streamer, onPlay: onPlay)
+        let resume = next.view_offset_secs ?? WatchProgress.position(for: next.progress_key)
+        onPlay(url, "\(next.show) S\(next.season)E\(next.episode)", next.progress_key, resume)
+    }
+}
+
 /// Portrait poster with hover pop, optional progress bar.
 struct PosterCard: View {
     let posterURL: String?
     let label: String
     let progress: Double?
+    var watched: Bool = false
     let action: () -> Void
 
     @State private var hovering = false
@@ -573,6 +651,18 @@ struct PosterCard: View {
 
                     if let progress {
                         progressBar(progress)
+                    }
+                    if watched {
+                        VStack {
+                            HStack {
+                                Spacer()
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(.white, .black.opacity(0.55))
+                                    .padding(5)
+                            }
+                            Spacer()
+                        }
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -772,7 +862,9 @@ struct MovieDetailSheet: View {
             }
             .padding(20)
         }
+        #if os(macOS)
         .frame(width: 620, height: 560)
+        #endif
         .background(canvasColor)
         .preferredColorScheme(.dark)
     }
@@ -848,7 +940,9 @@ struct ShowDetailSheet: View {
                 }
             }
         }
+        #if os(macOS)
         .frame(width: 560, height: 640)
+        #endif
         .preferredColorScheme(.dark)
     }
 
@@ -857,6 +951,7 @@ struct ShowDetailSheet: View {
         Button {
             if let url = streamer.resolveStream(ep.stream_url) {
                 dismiss()
+                setNext(after: ep, in: episodes, streamer: streamer, onPlay: onPlay)
                 let resume = ep.view_offset_secs
                     ?? WatchProgress.position(for: ep.progress_key)
                 onPlay(url, "\(show.name) S\(ep.season)E\(ep.episode)", ep.progress_key, resume)

@@ -137,6 +137,17 @@ struct RootView: View {
             let key = String(path.dropFirst("plex:".count))
             Task { markers = await streamer.plexMarkers(ratingKey: key) }
         }
+
+        player.onFileEnded = { [self] in
+            if let next = NowPlaying.nextEpisode {
+                next()
+            } else {
+                if !player.isPaused { player.togglePause() }
+                saveProgress()
+                showPlayer = false
+                refreshTick += 1
+            }
+        }
     }
 
     private func saveProgress() {
@@ -184,12 +195,17 @@ struct PlayerScreen: View {
             Color.black.ignoresSafeArea()
             PlayerView(player: player).ignoresSafeArea()
 
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    withAnimation { controlsVisible.toggle() }
-                    if controlsVisible { scheduleHide() }
-                }
+            // Double-tap edges to seek ±10s; single tap toggles controls.
+            HStack(spacing: 0) {
+                Color.clear.contentShape(Rectangle())
+                    .onTapGesture(count: 2) { player.seek(to: max(player.timePos - 10, 0)) }
+                Color.clear.contentShape(Rectangle())
+                    .onTapGesture(count: 2) { player.seek(to: player.timePos + 10) }
+            }
+            .onTapGesture {
+                withAnimation { controlsVisible.toggle() }
+                if controlsVisible { scheduleHide() }
+            }
 
             if let marker = activeMarker {
                 VStack {
@@ -197,9 +213,14 @@ struct PlayerScreen: View {
                     HStack {
                         Spacer()
                         Button {
-                            player.seek(to: marker.end_secs)
+                            if marker.kind == "credits", let next = NowPlaying.nextEpisode {
+                                next()
+                            } else {
+                                player.seek(to: marker.end_secs)
+                            }
                         } label: {
-                            Text(skipLabel(marker.kind))
+                            Text(marker.kind == "credits" && NowPlaying.nextEpisode != nil
+                                 ? "Next Episode  ▶" : skipLabel(marker.kind))
                                 .font(.system(size: 15, weight: .bold))
                                 .padding(.horizontal, 22).padding(.vertical, 11)
                                 .background(.white, in: RoundedRectangle(cornerRadius: 6))
