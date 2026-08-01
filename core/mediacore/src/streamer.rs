@@ -236,11 +236,18 @@ async fn library_scan(
     }
 }
 
+/// The local SMB index is only a fallback for setups without Plex: both point
+/// at the same files, and filename-parsed titles never dedup cleanly against
+/// Plex's canonical ones (year suffixes, punctuation, abbreviations).
+fn use_local_index(st: &AppState) -> bool {
+    st.plex.is_none() && !st.restricted && st.fs.is_some()
+}
+
 async fn library_movies(State(st): State<AppState>) -> Response {
     // Keyed by normalized title(+year); Plex wins on collision because it
     // carries watch state and richer metadata.
     let mut map: HashMap<String, MovieOut> = HashMap::new();
-    if let (false, true, Some(Ok(rows))) = (st.restricted, st.fs.is_some(), st.index.as_ref().map(|i| i.movies())) {
+    if let (true, Some(Ok(rows))) = (use_local_index(&st), st.index.as_ref().map(|i| i.movies())) {
         for m in rows {
             let key = format!("{}|{}", norm(&m.title), m.year.unwrap_or(0));
             map.insert(
@@ -295,7 +302,7 @@ async fn library_movies(State(st): State<AppState>) -> Response {
 
 async fn library_episodes(State(st): State<AppState>) -> Response {
     let mut map: HashMap<String, EpisodeOut> = HashMap::new();
-    if let (false, true, Some(Ok(rows))) = (st.restricted, st.fs.is_some(), st.index.as_ref().map(|i| i.episodes())) {
+    if let (true, Some(Ok(rows))) = (use_local_index(&st), st.index.as_ref().map(|i| i.episodes())) {
         for e in rows {
             let key = format!("{}|{}|{}", norm(&e.show), e.season, e.episode);
             map.insert(
@@ -355,7 +362,7 @@ async fn library_episodes(State(st): State<AppState>) -> Response {
 
 async fn library_shows(State(st): State<AppState>) -> Response {
     let mut map: HashMap<String, ShowOut> = HashMap::new();
-    if let (false, true, Some(Ok(rows))) = (st.restricted, st.fs.is_some(), st.index.as_ref().map(|i| i.shows())) {
+    if let (true, Some(Ok(rows))) = (use_local_index(&st), st.index.as_ref().map(|i| i.shows())) {
         for s in rows {
             map.insert(
                 norm(&s.name),

@@ -106,7 +106,7 @@ struct ContentView: View {
 
     private func closePlayer() {
         if !player.isPaused { player.togglePause() }
-        saveProgress(traktState: "stop")
+        saveProgress()
         showPlayer = false
         refreshTick += 1  // re-pull library so Continue Watching updates
     }
@@ -306,7 +306,7 @@ struct ContentView: View {
         }
     }
 
-    private func saveProgress(traktState: String? = nil) {
+    private func saveProgress() {
         guard let path = nowPlayingPath, player.duration > 0 else { return }
         WatchProgress.save(path: path, position: player.timePos, duration: player.duration)
         // Mirror progress to Plex so its watch history stays in sync.
@@ -316,15 +316,6 @@ struct ContentView: View {
                 time: player.timePos,
                 duration: player.duration,
                 state: player.isPaused ? "paused" : "playing")
-        }
-        // And to Trakt, when connected.
-        if let ident = NowPlaying.trakt {
-            let state = traktState ?? (player.isPaused ? "pause" : "start")
-            streamer.traktScrobble(
-                state: state,
-                progress: player.timePos / player.duration * 100,
-                kind: ident.kind, tmdb: ident.tmdb,
-                season: ident.season, episode: ident.episode)
         }
     }
 

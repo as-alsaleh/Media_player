@@ -273,39 +273,6 @@ final class StreamerManager: ObservableObject {
         return try? JSONDecoder().decode(PlexLoginResult.self, from: data)
     }
 
-    struct TraktCode: Codable {
-        let device_code: String
-        let user_code: String
-        let verification_url: String
-        let interval: UInt64
-    }
-
-    struct TraktResult: Codable {
-        let pending: Bool
-        let access_token: String?
-        let refresh_token: String?
-    }
-
-    func traktLoginStart(clientId: String) async -> TraktCode? {
-        guard let baseURL else { return nil }
-        var comps = URLComponents(url: baseURL.appendingPathComponent("trakt/login/start"), resolvingAgainstBaseURL: false)!
-        comps.queryItems = [URLQueryItem(name: "client_id", value: clientId)]
-        guard let (data, _) = try? await URLSession.shared.data(from: comps.url!) else { return nil }
-        return try? JSONDecoder().decode(TraktCode.self, from: data)
-    }
-
-    func traktLoginPoll(clientId: String, clientSecret: String, deviceCode: String) async -> TraktResult? {
-        guard let baseURL else { return nil }
-        var comps = URLComponents(url: baseURL.appendingPathComponent("trakt/login/poll"), resolvingAgainstBaseURL: false)!
-        comps.queryItems = [
-            URLQueryItem(name: "client_id", value: clientId),
-            URLQueryItem(name: "client_secret", value: clientSecret),
-            URLQueryItem(name: "device_code", value: deviceCode),
-        ]
-        guard let (data, _) = try? await URLSession.shared.data(from: comps.url!) else { return nil }
-        return try? JSONDecoder().decode(TraktResult.self, from: data)
-    }
-
     struct PlexMarker: Codable, Hashable {
         let kind: String     // "intro" | "credits" | "commercial"
         let start_secs: Double
@@ -339,27 +306,6 @@ final class StreamerManager: ObservableObject {
         var comps = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         comps.queryItems = items
         URLSession.shared.dataTask(with: comps.url!).resume()
-    }
-
-    /// Fire-and-forget Trakt scrobble; no-op unless Trakt is connected.
-    func traktScrobble(state: String, progress: Double,
-                       kind: String, tmdb: UInt64,
-                       season: UInt16? = nil, episode: UInt16? = nil) {
-        let d = UserDefaults.standard
-        guard let token = d.string(forKey: "traktAccessToken"), !token.isEmpty,
-              let clientId = d.string(forKey: "traktClientId"), !clientId.isEmpty
-        else { return }
-        var items = [
-            URLQueryItem(name: "client_id", value: clientId),
-            URLQueryItem(name: "token", value: token),
-            URLQueryItem(name: "state", value: state),
-            URLQueryItem(name: "progress", value: String(format: "%.1f", progress)),
-            URLQueryItem(name: "kind", value: kind),
-            URLQueryItem(name: "tmdb", value: String(tmdb)),
-        ]
-        if let season { items.append(URLQueryItem(name: "season", value: String(season))) }
-        if let episode { items.append(URLQueryItem(name: "episode", value: String(episode))) }
-        fireAndForget("trakt/scrobble", items)
     }
 
     func reportPlexProgress(ratingKey: String, time: Double, duration: Double, state: String) {

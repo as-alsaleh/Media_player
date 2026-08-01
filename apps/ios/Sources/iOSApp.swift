@@ -48,7 +48,7 @@ struct RootView: View {
                 markers: markers,
                 onClose: {
                     if !player.isPaused { player.togglePause() }
-                    saveProgress(traktState: "stop")
+                    saveProgress()
                     showPlayer = false
                     refreshTick += 1
                 })
@@ -134,7 +134,7 @@ struct RootView: View {
         }
     }
 
-    private func saveProgress(traktState: String? = nil) {
+    private func saveProgress() {
         guard let path = nowPlayingPath, player.duration > 0 else { return }
         WatchProgress.save(path: path, position: player.timePos, duration: player.duration)
         if path.hasPrefix("plex:") {
@@ -143,14 +143,6 @@ struct RootView: View {
                 time: player.timePos,
                 duration: player.duration,
                 state: player.isPaused ? "paused" : "playing")
-        }
-        if let ident = NowPlaying.trakt {
-            let state = traktState ?? (player.isPaused ? "pause" : "start")
-            streamer.traktScrobble(
-                state: state,
-                progress: player.timePos / player.duration * 100,
-                kind: ident.kind, tmdb: ident.tmdb,
-                season: ident.season, episode: ident.episode)
         }
     }
 }

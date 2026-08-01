@@ -141,8 +141,6 @@ struct Chip: View {
 enum NowPlaying {
     static var nextEpisode: (() -> Void)?
     static var nextLabel: String?
-    /// Trakt identity of the current item (kind, tmdb, season, episode).
-    static var trakt: (kind: String, tmdb: UInt64, season: UInt16?, episode: UInt16?)?
 }
 
 /// Netflix-style home: fixed top nav, cinematic hero, carousels.
@@ -418,6 +416,14 @@ struct BrowseView: View {
     }
 
     private let heroTimer = Timer.publish(every: 7, on: .main, in: .common).autoconnect()
+    @State private var heroHoldUntil = Date.distantPast
+
+    /// Step the slideshow manually and hold off auto-advance for a while.
+    private func stepHero(_ delta: Int, count: Int) {
+        guard count > 0 else { return }
+        heroIndex = ((heroIndex % count) + delta + count) % count
+        heroHoldUntil = Date().addingTimeInterval(12)
+    }
 
     @ViewBuilder
     private var hero: some View {
@@ -431,19 +437,41 @@ struct BrowseView: View {
 
                 // Page dots
                 if entries.count > 1 {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 8) {
                         ForEach(0..<entries.count, id: \.self) { i in
                             Circle()
                                 .fill(.white.opacity(i == heroIndex % entries.count ? 0.95 : 0.35))
                                 .frame(width: 6, height: 6)
+                                .frame(width: 14, height: 14)   // generous tap target
+                                .contentShape(Rectangle())
+                                #if !os(tvOS)
+                                .onTapGesture {
+                                    heroIndex = i
+                                    heroHoldUntil = Date().addingTimeInterval(12)
+                                }
+                                #endif
                         }
                     }
                     .padding(.trailing, edgePad + 22)
-                    .padding(.bottom, 20)
+                    .padding(.bottom, 16)
                 }
             }
+            #if !os(tvOS)
+            // Swipe / trackpad-drag between slides.
+            .gesture(
+                DragGesture(minimumDistance: 30)
+                    .onEnded { v in
+                        if v.translation.width < -40 {
+                            stepHero(1, count: entries.count)
+                        } else if v.translation.width > 40 {
+                            stepHero(-1, count: entries.count)
+                        }
+                    }
+            )
+            #endif
             .animation(.easeInOut(duration: 0.7), value: heroIndex)
             .onReceive(heroTimer) { _ in
+                guard Date() >= heroHoldUntil else { return }
                 heroIndex = (heroIndex + 1) % max(entries.count, 1)
             }
         }
@@ -833,7 +861,6 @@ struct BrowseView: View {
         if let url = streamer.resolveStream(movie.stream_url) {
             NowPlaying.nextEpisode = nil
             NowPlaying.nextLabel = nil
-            NowPlaying.trakt = movie.tmdb_id.map { ("movie", $0, nil, nil) }
             let resume = movie.view_offset_secs ?? WatchProgress.position(for: movie.progress_key)
             onPlay(url, movie.title, movie.progress_key, resume)
         }
@@ -841,7 +868,6 @@ struct BrowseView: View {
 
     private func play(_ ep: StreamerManager.LibraryEpisode) {
         guard let url = streamer.resolveStream(ep.stream_url) else { return }
-        NowPlaying.trakt = ep.show_tmdb_id.map { ("episode", $0, ep.season, ep.episode) }
         setNext(after: ep, in: episodes, streamer: streamer, onPlay: onPlay)
         let resume = ep.view_offset_secs ?? WatchProgress.position(for: ep.progress_key)
         onPlay(url, "\(ep.show) S\(ep.season)E\(ep.episode)", ep.progress_key, resume)
@@ -904,7 +930,6 @@ func setNext(
     NowPlaying.nextLabel = String(format: "S%02dE%02d", next.season, next.episode)
     NowPlaying.nextEpisode = {
         guard let url = streamer.resolveStream(next.stream_url) else { return }
-        NowPlaying.trakt = next.show_tmdb_id.map { ("episode", $0, next.season, next.episode) }
         setNext(after: next, in: episodes, streamer: streamer, onPlay: onPlay)
         let resume = next.view_offset_secs ?? WatchProgress.position(for: next.progress_key)
         onPlay(url, "\(next.show) S\(next.season)E\(next.episode)", next.progress_key, resume)
@@ -1252,7 +1277,6 @@ struct ShowDetailSheet: View {
         Button {
             if let url = streamer.resolveStream(ep.stream_url) {
                 dismiss()
-                NowPlaying.trakt = ep.show_tmdb_id.map { ("episode", $0, ep.season, ep.episode) }
                 setNext(after: ep, in: episodes, streamer: streamer, onPlay: onPlay)
                 let resume = ep.view_offset_secs
                     ?? WatchProgress.position(for: ep.progress_key)
