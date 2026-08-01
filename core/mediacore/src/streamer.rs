@@ -54,6 +54,7 @@ struct MovieOut {
     last_viewed_at: Option<u64>,
     duration_secs: Option<f64>,
     tmdb_id: Option<u64>,
+    added_at: Option<u64>,
 }
 
 /// Loose identity for cross-source dedup: lowercase alphanumerics only.
@@ -73,6 +74,7 @@ struct ShowOut {
     backdrop_url: Option<String>,
     overview: Option<String>,
     source: &'static str,
+    added_at: Option<u64>,
 }
 
 #[derive(serde::Serialize)]
@@ -272,6 +274,7 @@ async fn library_movies(State(st): State<AppState>) -> Response {
                     last_viewed_at: None,
                     duration_secs: None,
                     tmdb_id: None,
+                    added_at: None,
                 },
             );
         }
@@ -296,6 +299,7 @@ async fn library_movies(State(st): State<AppState>) -> Response {
                     last_viewed_at: m.last_viewed_at,
                     duration_secs: m.duration_secs,
                     tmdb_id: m.tmdb_id,
+                    added_at: m.added_at,
                 },
             );
         }
@@ -385,6 +389,7 @@ async fn library_shows(State(st): State<AppState>) -> Response {
                     backdrop_url: s.backdrop_url,
                     overview: s.overview,
                     source: "local",
+                    added_at: None,
                 },
             );
         }
@@ -401,6 +406,7 @@ async fn library_shows(State(st): State<AppState>) -> Response {
                     backdrop_url: s.backdrop_url,
                     overview: s.overview,
                     source: "plex",
+                    added_at: s.added_at,
                 },
             );
         }

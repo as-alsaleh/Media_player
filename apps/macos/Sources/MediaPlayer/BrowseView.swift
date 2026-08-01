@@ -143,6 +143,65 @@ enum NowPlaying {
     static var nextLabel: String?
 }
 
+/// Horizontal card scroller with hover paging arrows on macOS
+/// (Netflix-style). Touch platforms just swipe.
+struct RowScroller<Item: Identifiable, Content: View>: View {
+    let items: [Item]
+    @ViewBuilder let content: (Item) -> Content
+
+    @State private var start = 0
+    @State private var hovering = false
+    private let step = 5
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(items) { item in
+                        content(item).id(item.id)
+                    }
+                }
+                .padding(.horizontal, edgePad)
+                .padding(.vertical, 10)
+            }
+            #if os(macOS)
+            .overlay(alignment: .leading) { arrow(left: true, proxy: proxy) }
+            .overlay(alignment: .trailing) { arrow(left: false, proxy: proxy) }
+            .onHoverCompat { hovering = $0 }
+            #endif
+        }
+    }
+
+    #if os(macOS)
+    @ViewBuilder
+    private func arrow(left: Bool, proxy: ScrollViewProxy) -> some View {
+        let canGo = left ? start > 0 : start + step < items.count
+        if hovering, canGo {
+            Button {
+                start = left ? max(0, start - step)
+                             : min(items.count - 1, start + step)
+                withAnimation(.easeOut(duration: 0.35)) {
+                    proxy.scrollTo(items[start].id, anchor: .leading)
+                }
+            } label: {
+                Image(systemName: left ? "chevron.left" : "chevron.right")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 150)
+                    .background(
+                        LinearGradient(
+                            colors: left ? [.black.opacity(0.8), .clear]
+                                         : [.clear, .black.opacity(0.8)],
+                            startPoint: .leading, endPoint: .trailing))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .transition(.opacity)
+        }
+    }
+    #endif
+}
+
 /// Netflix-style home: fixed top nav, cinematic hero, carousels.
 struct BrowseView: View {
     @ObservedObject var streamer: StreamerManager
@@ -378,6 +437,9 @@ struct BrowseView: View {
             if !continueWatching.isEmpty {
                 continueRow
             }
+            if !recentlyAdded.isEmpty {
+                recentRow
+            }
             carousel("Movies", items: movies.map(CardItem.movie))
             showCarousel
             Spacer(minLength: 40)
@@ -396,15 +458,17 @@ struct BrowseView: View {
         }
     }
 
-    /// Alternating mix of recent movies and shows with artwork.
+    /// Alternating mix of recent movies and shows with artwork,
+    /// newest arrivals first.
     private var heroEntries: [HeroEntry] {
         let heroMovies = movies
             .filter { $0.backdrop_url != nil && !$0.watched }
-            .sorted { ($0.year ?? 0) > ($1.year ?? 0) }
+            .sorted { ($0.added_at ?? 0, $0.year ?? 0) > ($1.added_at ?? 0, $1.year ?? 0) }
             .prefix(4)
             .map(HeroEntry.movie)
         let heroShows = shows
             .filter { $0.backdrop_url != nil }
+            .sorted { ($0.added_at ?? 0) > ($1.added_at ?? 0) }
             .prefix(3)
             .map(HeroEntry.show)
         var mixed: [HeroEntry] = []
@@ -785,14 +849,38 @@ struct BrowseView: View {
     private var continueRow: some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader("Continue Watching")
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(continueWatching) { item in
-                        ContinueCard(item: item) { tapped(item) }
+            RowScroller(items: continueWatching) { item in
+                ContinueCard(item: item) { tapped(item) }
+            }
+        }
+    }
+
+    /// Newest arrivals on the server, movies and shows mixed.
+    private var recentlyAdded: [HeroEntry] {
+        let m = movies.map { (($0.added_at ?? 0), HeroEntry.movie($0)) }
+        let s = shows.map { (($0.added_at ?? 0), HeroEntry.show($0)) }
+        return (m + s)
+            .filter { $0.0 > 0 }
+            .sorted { $0.0 > $1.0 }
+            .prefix(15)
+            .map(\.1)
+    }
+
+    private var recentRow: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Recently Added")
+            RowScroller(items: recentlyAdded) { entry in
+                switch entry {
+                case .movie(let m):
+                    PosterCard(posterURL: m.poster_url, label: m.title,
+                               progress: nil, watched: m.watched) {
+                        selectedMovie = m
+                    }
+                case .show(let s):
+                    PosterCard(posterURL: s.poster_url, label: s.name, progress: nil) {
+                        selectedShow = s
                     }
                 }
-                .padding(.horizontal, edgePad)
-                .padding(.vertical, 8)
             }
         }
     }
@@ -800,17 +888,11 @@ struct BrowseView: View {
     private func carousel(_ title: String, items: [CardItem]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader(title)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(items) { item in
-                        PosterCard(posterURL: item.poster, label: item.label,
-                                   progress: item.progress, watched: item.watched) {
-                            tappedInfo(item)
-                        }
-                    }
+            RowScroller(items: items) { item in
+                PosterCard(posterURL: item.poster, label: item.label,
+                           progress: item.progress, watched: item.watched) {
+                    tappedInfo(item)
                 }
-                .padding(.horizontal, edgePad)
-                .padding(.vertical, 10)
             }
         }
     }
@@ -818,16 +900,10 @@ struct BrowseView: View {
     private var showCarousel: some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader("TV Shows")
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(shows) { show in
-                        PosterCard(posterURL: show.poster_url, label: show.name, progress: nil) {
-                            selectedShow = show
-                        }
-                    }
+            RowScroller(items: shows) { show in
+                PosterCard(posterURL: show.poster_url, label: show.name, progress: nil) {
+                    selectedShow = show
                 }
-                .padding(.horizontal, edgePad)
-                .padding(.vertical, 10)
             }
         }
     }

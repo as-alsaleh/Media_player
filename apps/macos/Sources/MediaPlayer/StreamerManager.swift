@@ -175,6 +175,7 @@ final class StreamerManager: ObservableObject {
         let last_viewed_at: UInt64?
         let duration_secs: Double?
         let tmdb_id: UInt64?
+        let added_at: UInt64?
         var id: String { uid }
     }
 
@@ -186,6 +187,7 @@ final class StreamerManager: ObservableObject {
         let backdrop_url: String?
         let overview: String?
         let source: String
+        let added_at: UInt64?
         var id: String { uid }
     }
 

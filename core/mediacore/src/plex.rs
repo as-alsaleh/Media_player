@@ -32,6 +32,7 @@ pub struct PlexMovie {
     pub last_viewed_at: Option<u64>,
     pub duration_secs: Option<f64>,
     pub tmdb_id: Option<u64>,
+    pub added_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -57,6 +58,7 @@ pub struct PlexShow {
     pub backdrop_url: Option<String>,
     pub overview: Option<String>,
     pub tmdb_id: Option<u64>,
+    pub added_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -130,6 +132,8 @@ struct Item {
     view_count: Option<u32>,
     #[serde(rename = "lastViewedAt")]
     last_viewed_at: Option<u64>,
+    #[serde(rename = "addedAt")]
+    added_at: Option<u64>,
     duration: Option<u64>,
     #[serde(rename = "Marker", default)]
     markers: Vec<MarkerRaw>,
@@ -381,6 +385,7 @@ impl PlexSource {
                     last_viewed_at: item.last_viewed_at,
                     duration_secs: item.duration_secs(),
                     tmdb_id: item.tmdb_id(),
+                    added_at: item.added_at,
                 });
             }
         }
@@ -403,6 +408,7 @@ impl PlexSource {
                     backdrop_url: self.image(&item.art),
                     overview: item.summary.clone(),
                     tmdb_id: item.tmdb_id(),
+                    added_at: item.added_at,
                 });
             }
         }

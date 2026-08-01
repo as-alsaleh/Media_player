@@ -31,6 +31,7 @@ struct ContentView: View {
     @State private var controlsVisible = true
     @State private var hideWork: DispatchWorkItem?
     @State private var showSettings = false
+    @State private var volumeLevel: Double = 100
 
     private let progressTimer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
@@ -200,30 +201,72 @@ struct ContentView: View {
                         )
                         .tint(progressRed)
                         .controlSize(.small)
+                        // Intro/ad/credits marker ticks on the timeline.
+                        .background {
+                            if player.duration > 0, !markers.isEmpty {
+                                GeometryReader { geo in
+                                    ForEach(markers, id: \.self) { m in
+                                        Capsule()
+                                            .fill(.white.opacity(0.55))
+                                            .frame(width: 2.5, height: 9)
+                                            .position(
+                                                x: geo.size.width * m.start_secs / player.duration,
+                                                y: geo.size.height / 2)
+                                    }
+                                }
+                                .allowsHitTesting(false)
+                            }
+                        }
                         Text(format(player.duration))
                             .font(.system(size: 12, weight: .medium).monospacedDigit())
                             .foregroundStyle(.white.opacity(0.85))
                     }
 
-                    HStack(spacing: 26) {
-                        Button { player.seek(to: max(player.timePos - Double(Prefs.skipBackSecs), 0)) } label: {
-                            Image(systemName: skipIcon(back: true)).font(.system(size: 20))
+                    ZStack {
+                        HStack(spacing: 26) {
+                            Button { player.seek(to: max(player.timePos - Double(Prefs.skipBackSecs), 0)) } label: {
+                                Image(systemName: skipIcon(back: true)).font(.system(size: 20))
+                            }
+                            .buttonStyle(.plain)
+                            Button { player.togglePause() } label: {
+                                Image(systemName: player.isPaused ? "play.fill" : "pause.fill")
+                                    .font(.system(size: 26))
+                                    .frame(width: 52, height: 52)
+                                    .background(.white.opacity(0.14), in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .keyboardShortcut(.space, modifiers: [])
+                            Button { player.seek(to: player.timePos + Double(Prefs.skipForwardSecs)) } label: {
+                                Image(systemName: skipIcon(back: false)).font(.system(size: 20))
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
-                        Button { player.togglePause() } label: {
-                            Image(systemName: player.isPaused ? "play.fill" : "pause.fill")
-                                .font(.system(size: 26))
-                                .frame(width: 52, height: 52)
-                                .background(.white.opacity(0.14), in: Circle())
+
+                        HStack(spacing: 14) {
+                            Spacer()
+                            Image(systemName: volumeLevel <= 0 ? "speaker.slash.fill"
+                                             : volumeLevel < 60 ? "speaker.wave.1.fill"
+                                             : "speaker.wave.2.fill")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.white.opacity(0.8))
+                                .frame(width: 20)
+                            Slider(value: Binding(
+                                get: { volumeLevel },
+                                set: { volumeLevel = $0; player.setDouble("volume", $0) }
+                            ), in: 0...130)
+                                .controlSize(.mini)
+                                .tint(.white.opacity(0.7))
+                                .frame(width: 90)
+                            Button { NSApp.keyWindow?.toggleFullScreen(nil) } label: {
+                                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                    .font(.system(size: 14, weight: .semibold))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Fullscreen (F)")
                         }
-                        .buttonStyle(.plain)
-                        .keyboardShortcut(.space, modifiers: [])
-                        Button { player.seek(to: player.timePos + Double(Prefs.skipForwardSecs)) } label: {
-                            Image(systemName: skipIcon(back: false)).font(.system(size: 20))
-                        }
-                        .buttonStyle(.plain)
                     }
                     .foregroundStyle(.white)
+                    .onAppear { volumeLevel = player.getDouble("volume") }
                 }
                 .padding(.horizontal, 26)
                 .padding(.vertical, 16)
