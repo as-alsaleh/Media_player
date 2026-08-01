@@ -25,6 +25,65 @@ pub struct AppState {
     pub fs: Arc<SmbFs>,
     pub index: Option<Arc<Index>>,
     pub tmdb_key: Option<String>,
+    pub plex: Option<Arc<crate::plex::PlexSource>>,
+}
+
+/// Unified library item shapes served to the UI, regardless of source.
+#[derive(serde::Serialize)]
+struct MovieOut {
+    uid: String,
+    title: String,
+    year: Option<u16>,
+    poster_url: Option<String>,
+    backdrop_url: Option<String>,
+    overview: Option<String>,
+    /// Absolute URL mpv can open. Local items point at /stream/…
+    stream_url: String,
+    /// Stable identity for resume points.
+    progress_key: String,
+    source: &'static str,
+}
+
+#[derive(serde::Serialize)]
+struct ShowOut {
+    uid: String,
+    name: String,
+    episode_count: u32,
+    poster_url: Option<String>,
+    backdrop_url: Option<String>,
+    overview: Option<String>,
+    source: &'static str,
+}
+
+#[derive(serde::Serialize)]
+struct EpisodeOut {
+    uid: String,
+    show: String,
+    season: u16,
+    episode: u16,
+    stream_url: String,
+    progress_key: String,
+    source: &'static str,
+}
+
+fn local_stream_url(path: &str) -> String {
+    let escaped = path
+        .split('/')
+        .map(|seg| urlencoding(seg))
+        .collect::<Vec<_>>()
+        .join("/");
+    format!("/stream/{escaped}")
+}
+
+fn urlencoding(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }
 
 pub struct Streamer {
@@ -33,7 +92,14 @@ pub struct Streamer {
 
 impl Streamer {
     pub fn new(fs: SmbFs) -> Self {
-        Self { state: AppState { fs: Arc::new(fs), index: None, tmdb_key: None } }
+        Self {
+            state: AppState { fs: Arc::new(fs), index: None, tmdb_key: None, plex: None },
+        }
+    }
+
+    pub fn with_plex(mut self, plex: Option<crate::plex::PlexSource>) -> Self {
+        self.state.plex = plex.map(Arc::new);
+        self
     }
 
     pub fn with_index(mut self, index: Index) -> Self {
@@ -103,27 +169,97 @@ async fn library_scan(
 }
 
 async fn library_movies(State(st): State<AppState>) -> Response {
-    match st.index.as_ref().map(|i| i.movies()) {
-        Some(Ok(rows)) => Json(rows).into_response(),
-        Some(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
-        None => (StatusCode::NOT_IMPLEMENTED, "no index configured").into_response(),
+    let mut out: Vec<MovieOut> = Vec::new();
+    if let Some(Ok(rows)) = st.index.as_ref().map(|i| i.movies()) {
+        out.extend(rows.into_iter().map(|m| MovieOut {
+            uid: format!("local-m{}", m.id),
+            title: m.title,
+            year: m.year,
+            poster_url: m.poster_url,
+            backdrop_url: m.backdrop_url,
+            overview: m.overview,
+            stream_url: local_stream_url(&m.path),
+            progress_key: m.path,
+            source: "local",
+        }));
     }
+    if let Some(plex) = &st.plex {
+        out.extend(plex.movies().await.into_iter().map(|m| MovieOut {
+            uid: format!("plex-m{}", m.rating_key),
+            title: m.title,
+            year: m.year,
+            poster_url: m.poster_url,
+            backdrop_url: m.backdrop_url,
+            overview: m.overview,
+            stream_url: m.stream_url,
+            progress_key: format!("plex:{}", m.rating_key),
+            source: "plex",
+        }));
+    }
+    out.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
+    out.dedup_by(|a, b| a.title == b.title && a.year == b.year);
+    Json(out).into_response()
 }
 
 async fn library_episodes(State(st): State<AppState>) -> Response {
-    match st.index.as_ref().map(|i| i.episodes()) {
-        Some(Ok(rows)) => Json(rows).into_response(),
-        Some(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
-        None => (StatusCode::NOT_IMPLEMENTED, "no index configured").into_response(),
+    let mut out: Vec<EpisodeOut> = Vec::new();
+    if let Some(Ok(rows)) = st.index.as_ref().map(|i| i.episodes()) {
+        out.extend(rows.into_iter().map(|e| EpisodeOut {
+            uid: format!("local-e{}", e.id),
+            show: e.show,
+            season: e.season,
+            episode: e.episode,
+            stream_url: local_stream_url(&e.path),
+            progress_key: e.path,
+            source: "local",
+        }));
     }
+    if let Some(plex) = &st.plex {
+        out.extend(plex.episodes().await.into_iter().map(|e| EpisodeOut {
+            uid: format!("plex-e{}", e.rating_key),
+            show: e.show,
+            season: e.season,
+            episode: e.episode,
+            stream_url: e.stream_url,
+            progress_key: format!("plex:{}", e.rating_key),
+            source: "plex",
+        }));
+    }
+    out.sort_by(|a, b| {
+        (a.show.to_lowercase(), a.season, a.episode)
+            .cmp(&(b.show.to_lowercase(), b.season, b.episode))
+    });
+    out.dedup_by(|a, b| a.show == b.show && a.season == b.season && a.episode == b.episode);
+    Json(out).into_response()
 }
 
 async fn library_shows(State(st): State<AppState>) -> Response {
-    match st.index.as_ref().map(|i| i.shows()) {
-        Some(Ok(rows)) => Json(rows).into_response(),
-        Some(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
-        None => (StatusCode::NOT_IMPLEMENTED, "no index configured").into_response(),
+    let mut out: Vec<ShowOut> = Vec::new();
+    if let Some(Ok(rows)) = st.index.as_ref().map(|i| i.shows()) {
+        out.extend(rows.into_iter().map(|s| ShowOut {
+            uid: format!("local-s{}", s.name),
+            name: s.name,
+            episode_count: s.episode_count,
+            poster_url: s.poster_url,
+            backdrop_url: s.backdrop_url,
+            overview: s.overview,
+            source: "local",
+        }));
     }
+    if let Some(plex) = &st.plex {
+        out.extend(plex.shows().await.into_iter().map(|s| ShowOut {
+            uid: format!("plex-s{}", s.name),
+            name: s.name,
+            episode_count: s.episode_count,
+            poster_url: s.poster_url,
+            backdrop_url: s.backdrop_url,
+            overview: s.overview,
+            source: "plex",
+        }));
+    }
+    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.dedup_by(|a, b| a.name.to_lowercase() == b.name.to_lowercase());
+    Json(out).into_response()
 }
 
 async fn stream(

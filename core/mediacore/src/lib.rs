@@ -7,6 +7,7 @@
 pub mod ffi;
 pub mod index;
 pub mod parse;
+pub mod plex;
 pub mod smb;
 pub mod streamer;
 pub mod tmdb;

@@ -164,10 +164,10 @@ struct BrowseView: View {
 
     private var continueWatching: [CardItem] {
         let positions = WatchProgress.allPositions()
-        let movieItems = movies.filter { positions[$0.path] != nil }.map(CardItem.movie)
-        let posterByShow = Dictionary(uniqueKeysWithValues: shows.map { ($0.name, $0.poster_url) })
+        let movieItems = movies.filter { positions[$0.progress_key] != nil }.map(CardItem.movie)
+        let posterByShow = Dictionary(shows.map { ($0.name, $0.poster_url) }) { a, _ in a }
         let epItems = episodes
-            .filter { positions[$0.path] != nil }
+            .filter { positions[$0.progress_key] != nil }
             .map { CardItem.episode($0, showPoster: posterByShow[$0.show] ?? nil) }
         return movieItems + epItems
     }
@@ -230,14 +230,14 @@ struct BrowseView: View {
     // MARK: - Actions
 
     private func play(_ movie: StreamerManager.LibraryMovie) {
-        if let url = streamer.streamURL(path: movie.path) {
-            onPlay(url, movie.title, movie.path)
+        if let url = streamer.resolveStream(movie.stream_url) {
+            onPlay(url, movie.title, movie.progress_key)
         }
     }
 
     private func play(_ ep: StreamerManager.LibraryEpisode) {
-        if let url = streamer.streamURL(path: ep.path) {
-            onPlay(url, "\(ep.show) S\(ep.season)E\(ep.episode)", ep.path)
+        if let url = streamer.resolveStream(ep.stream_url) {
+            onPlay(url, "\(ep.show) S\(ep.season)E\(ep.episode)", ep.progress_key)
         }
     }
 
@@ -348,16 +348,16 @@ struct ShowDetailSheet: View {
                     Section("Season \(season)") {
                         ForEach(eps) { ep in
                             Button {
-                                if let url = streamer.streamURL(path: ep.path) {
+                                if let url = streamer.resolveStream(ep.stream_url) {
                                     dismiss()
-                                    onPlay(url, "\(show.name) S\(ep.season)E\(ep.episode)", ep.path)
+                                    onPlay(url, "\(show.name) S\(ep.season)E\(ep.episode)", ep.progress_key)
                                 }
                             } label: {
                                 HStack {
                                     Text(String(format: "E%02d", ep.episode))
                                         .font(.body.monospacedDigit())
                                     Spacer()
-                                    if WatchProgress.position(for: ep.path) != nil {
+                                    if WatchProgress.position(for: ep.progress_key) != nil {
                                         Image(systemName: "clock.arrow.circlepath")
                                             .foregroundStyle(.secondary)
                                     }

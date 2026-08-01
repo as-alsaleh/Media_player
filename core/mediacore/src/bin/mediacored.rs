@@ -24,6 +24,10 @@ struct Args {
     /// SQLite library index path; omit to disable the library endpoints.
     #[arg(long)]
     db: Option<std::path::PathBuf>,
+    /// Plex server base URL (e.g. http://192.168.100.100:32400).
+    /// Token via MEDIACORED_PLEX_TOKEN.
+    #[arg(long)]
+    plex_url: Option<String>,
 }
 
 #[tokio::main]
@@ -41,6 +45,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         streamer = streamer.with_index(mediacore::index::Index::open(db)?);
     }
     streamer = streamer.with_tmdb_key(std::env::var("MEDIACORED_TMDB_KEY").ok());
+    if let (Some(url), Ok(token)) = (&args.plex_url, std::env::var("MEDIACORED_PLEX_TOKEN")) {
+        streamer = streamer
+            .with_plex(Some(mediacore::plex::PlexSource::new(url.clone(), token)));
+    }
     let addr = streamer.serve(args.port).await?;
     // Machine-readable ready line — the app parses this to find the port.
     println!("LISTEN http://{addr}");

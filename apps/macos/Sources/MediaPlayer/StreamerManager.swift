@@ -44,6 +44,11 @@ final class StreamerManager: ObservableObject {
         if let tmdbKey = UserDefaults.standard.string(forKey: "tmdbApiKey"), !tmdbKey.isEmpty {
             env["MEDIACORED_TMDB_KEY"] = tmdbKey
         }
+        if let plexURL = UserDefaults.standard.string(forKey: "plexServerURL"), !plexURL.isEmpty,
+           let plexToken = UserDefaults.standard.string(forKey: "plexToken"), !plexToken.isEmpty {
+            proc.arguments?.append(contentsOf: ["--plex-url", plexURL])
+            env["MEDIACORED_PLEX_TOKEN"] = plexToken
+        }
         proc.environment = env
 
         let pipe = Pipe()
@@ -97,32 +102,45 @@ final class StreamerManager: ObservableObject {
     }
 
     struct LibraryMovie: Codable, Identifiable, Hashable {
-        let id: Int64
+        let uid: String
         let title: String
         let year: UInt16?
-        let path: String
-        let size: UInt64
         let poster_url: String?
-        let overview: String?
         let backdrop_url: String?
+        let overview: String?
+        let stream_url: String
+        let progress_key: String
+        let source: String
+        var id: String { uid }
     }
 
     struct LibraryShow: Codable, Identifiable, Hashable {
+        let uid: String
         let name: String
         let episode_count: UInt32
         let poster_url: String?
         let backdrop_url: String?
         let overview: String?
-        var id: String { name }
+        let source: String
+        var id: String { uid }
     }
 
     struct LibraryEpisode: Codable, Identifiable, Hashable {
-        let id: Int64
+        let uid: String
         let show: String
         let season: UInt16
         let episode: UInt16
-        let path: String
-        let size: UInt64
+        let stream_url: String
+        let progress_key: String
+        let source: String
+        var id: String { uid }
+    }
+
+    /// Resolve a (possibly relative) stream URL against the helper's base.
+    func resolveStream(_ raw: String) -> URL? {
+        if raw.hasPrefix("http") { return URL(string: raw) }
+        guard let baseURL else { return nil }
+        return URL(string: baseURL.absoluteString + raw)
     }
 
     struct ScanResult: Codable {
