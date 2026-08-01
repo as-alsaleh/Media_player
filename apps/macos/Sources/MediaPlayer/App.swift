@@ -3,6 +3,15 @@ import UniformTypeIdentifiers
 
 @main
 struct MediaPlayerApp: App {
+    init() {
+        // Running as a bare SwiftPM executable (no .app bundle) macOS treats
+        // us as a background process; opt back into being a windowed app.
+        NSApplication.shared.setActivationPolicy(.regular)
+        DispatchQueue.main.async {
+            NSApplication.shared.activate(ignoringOtherApps: true)
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

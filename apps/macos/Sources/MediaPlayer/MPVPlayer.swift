@@ -29,6 +29,10 @@ final class MPVPlayer: ObservableObject {
         var layerPtr = Int64(Int(bitPattern: Unmanaged.passUnretained(layer).toOpaque()))
         mpv_set_option(handle, "wid", MPV_FORMAT_INT64, &layerPtr)
 
+        // Diagnostic log, overwritten each run.
+        setOption("log-file", NSTemporaryDirectory() + "mediaplayer-mpv.log")
+        setOption("msg-level", "all=v")
+
         setOption("vo", "gpu-next")
         setOption("gpu-api", "vulkan")
         setOption("hwdec", "videotoolbox")
@@ -52,6 +56,12 @@ final class MPVPlayer: ObservableObject {
         thread.name = "mpv-events"
         thread.start()
         eventThread = thread
+
+        // Allow `MediaPlayer /path/to/file` for headless/scripted testing.
+        if CommandLine.arguments.count > 1 {
+            let arg = CommandLine.arguments[1]
+            load(url: URL(fileURLWithPath: arg))
+        }
     }
 
     func load(url: URL) {

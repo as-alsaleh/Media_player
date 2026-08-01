@@ -4,17 +4,20 @@ import QuartzCore
 
 /// NSView backed by a CAMetalLayer that mpv renders into.
 final class MetalHostView: NSView {
-    let metalLayer = CAMetalLayer()
+    var metalLayer: CAMetalLayer { layer as! CAMetalLayer }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        metalLayer.frame = bounds
-        metalLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-        layer = metalLayer
     }
 
     required init?(coder: NSCoder) { fatalError("unsupported") }
+
+    override func makeBackingLayer() -> CALayer {
+        let layer = CAMetalLayer()
+        layer.framebufferOnly = false
+        return layer
+    }
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
