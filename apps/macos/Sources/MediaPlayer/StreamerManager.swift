@@ -194,6 +194,9 @@ final class StreamerManager: ObservableObject {
         let show: String
         let season: UInt16
         let episode: UInt16
+        let title: String?
+        let thumb_url: String?
+        let overview: String?
         let stream_url: String
         let progress_key: String
         let source: String

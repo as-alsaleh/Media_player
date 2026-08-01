@@ -425,6 +425,60 @@ struct BrowseView: View {
         heroHoldUntil = Date().addingTimeInterval(12)
     }
 
+    #if os(macOS)
+    /// Invisible layer that pages the slideshow on two-finger trackpad
+    /// scrolls (or a mouse wheel tilt). Uses a window-level event monitor so
+    /// vertical scrolling of the page underneath keeps working.
+    private struct ScrollSwipeCatcher: NSViewRepresentable {
+        let onSwipe: (Int) -> Void
+
+        func makeNSView(context: Context) -> Catcher { Catcher(onSwipe: onSwipe) }
+        func updateNSView(_ view: Catcher, context: Context) { view.onSwipe = onSwipe }
+
+        final class Catcher: NSView {
+            var onSwipe: (Int) -> Void
+            private var monitor: Any?
+            private var accum: CGFloat = 0
+            private var fired = false
+            private var lastTime: TimeInterval = 0
+
+            init(onSwipe: @escaping (Int) -> Void) {
+                self.onSwipe = onSwipe
+                super.init(frame: .zero)
+            }
+            required init?(coder: NSCoder) { fatalError() }
+            deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
+
+            override func viewDidMoveToWindow() {
+                super.viewDidMoveToWindow()
+                guard monitor == nil, window != nil else { return }
+                monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                    self?.observe(event)
+                    return event
+                }
+            }
+
+            private func observe(_ e: NSEvent) {
+                guard e.window === window, e.momentumPhase == [] else { return }
+                let loc = convert(e.locationInWindow, from: nil)
+                guard bounds.contains(loc) else { return }
+                // One page per gesture: reset on gesture start or after a lull.
+                if e.phase == .began || e.timestamp - lastTime > 0.3 {
+                    accum = 0
+                    fired = false
+                }
+                lastTime = e.timestamp
+                guard abs(e.scrollingDeltaX) > abs(e.scrollingDeltaY) else { return }
+                accum += e.scrollingDeltaX
+                if !fired, abs(accum) > 60 {
+                    fired = true
+                    onSwipe(accum < 0 ? 1 : -1)
+                }
+            }
+        }
+    }
+    #endif
+
     @ViewBuilder
     private var hero: some View {
         let entries = heroEntries
@@ -467,6 +521,13 @@ struct BrowseView: View {
                             stepHero(-1, count: entries.count)
                         }
                     }
+            )
+            #endif
+            #if os(macOS)
+            // Two-finger trackpad scroll pages the slideshow too.
+            .overlay(
+                ScrollSwipeCatcher { delta in stepHero(delta, count: entries.count) }
+                    .allowsHitTesting(false)
             )
             #endif
             .animation(.easeInOut(duration: 0.7), value: heroIndex)
@@ -523,16 +584,28 @@ struct BrowseView: View {
                         .foregroundStyle(.white.opacity(0.9))
                         .shadow(color: .black.opacity(0.8), radius: 5)
                 }
-                Button {
-                    selectedShow = show
-                } label: {
-                    Label("Episodes", systemImage: "play.fill")
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
-                        .padding(.horizontal, 30).padding(.vertical, 12)
-                        .background(.white, in: Capsule())
-                        .foregroundStyle(.black)
+                HStack(spacing: 10) {
+                    Button {
+                        if let ep = nextUp(in: show) { play(ep) }
+                    } label: {
+                        Label("Play", systemImage: "play.fill")
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .padding(.horizontal, 30).padding(.vertical, 12)
+                            .background(.white, in: Capsule())
+                            .foregroundStyle(.black)
+                    }
+                    .buttonStyle(.plain)
+                    Button {
+                        selectedShow = show
+                    } label: {
+                        Label("More Info", systemImage: "info.circle")
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .padding(.horizontal, 24).padding(.vertical, 12)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .foregroundStyle(.white)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
                 .padding(.top, 4)
             }
             .padding(.horizontal, 34)
@@ -873,6 +946,24 @@ struct BrowseView: View {
         onPlay(url, "\(ep.show) S\(ep.season)E\(ep.episode)", ep.progress_key, resume)
     }
 
+    /// The episode Play should start for a show: the in-progress one,
+    /// else the first unwatched, else episode one.
+    private func nextUp(in show: StreamerManager.LibraryShow) -> StreamerManager.LibraryEpisode? {
+        let eps = episodes
+            .filter { $0.show == show.name }
+            .sorted { ($0.season, $0.episode) < ($1.season, $1.episode) }
+        if let current = eps
+            .filter({ $0.view_offset_secs != nil && !$0.watched })
+            .max(by: { ($0.last_viewed_at ?? 0) < ($1.last_viewed_at ?? 0) }) {
+            return current
+        }
+        if let lastWatched = eps.lastIndex(where: { $0.watched }),
+           let next = eps[eps.index(after: lastWatched)...].first(where: { !$0.watched }) {
+            return next
+        }
+        return eps.first(where: { !$0.watched }) ?? eps.first
+    }
+
     private func sharePath(from url: URL) -> String {
         let raw = url.path.removingPercentEncoding ?? url.path
         return raw.hasPrefix("/stream/") ? String(raw.dropFirst("/stream/".count)) : raw
@@ -1120,15 +1211,25 @@ struct MovieDetailSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ZStack(alignment: .bottomLeading) {
-                FadeInImage(url: (movie.backdrop_url ?? movie.poster_url).flatMap(URL.init))
-                .frame(height: 280)
-                .clipped()
-                LinearGradient(colors: [.clear, .black.opacity(0.95)], startPoint: .top, endPoint: .bottom)
-                HStack(alignment: .bottom) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(movie.title).font(.system(size: 34, weight: .black))
+        ScrollView {
+            VStack(spacing: 0) {
+                // Full 16:9 backdrop — the whole picture, not a cropped strip.
+                ZStack(alignment: .bottomLeading) {
+                    FadeInImage(url: (movie.backdrop_url ?? movie.poster_url).flatMap(URL.init))
+                        .aspectRatio(16 / 9, contentMode: .fit)
+                        .clipped()
+                    LinearGradient(
+                        stops: [
+                            .init(color: .clear, location: 0.45),
+                            .init(color: canvasColor.opacity(0.9), location: 0.92),
+                            .init(color: canvasColor, location: 1.0),
+                        ],
+                        startPoint: .top, endPoint: .bottom)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(movie.title)
+                            .font(.system(size: 36, weight: .black, design: .rounded))
+                            .shadow(color: .black.opacity(0.8), radius: 8)
                         HStack(spacing: 10) {
                             if let year = movie.year { Text(String(year)) }
                             if let dur = movie.duration_secs { Text("\(Int(dur) / 60) min") }
@@ -1136,64 +1237,85 @@ struct MovieDetailSheet: View {
                                 Label("Watched", systemImage: "checkmark.circle.fill")
                             }
                         }
-                        .font(.callout)
-                        .foregroundStyle(.white.opacity(0.75))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.8))
                     }
-                    Spacer()
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark.circle.fill").font(.title2)
-                    }
-                    .buttonStyle(.plain)
+                    .padding(22)
                 }
-                .padding(18)
-            }
-
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 12) {
-                    Button {
-                        if let url = streamer.resolveStream(movie.stream_url) {
-                            dismiss()
-                            let resume = movie.view_offset_secs
-                                ?? WatchProgress.position(for: movie.progress_key)
-                            onPlay(url, movie.title, movie.progress_key, resume)
-                        }
-                    } label: {
-                        Label(movie.view_offset_secs != nil ? "Resume" : "Play",
-                              systemImage: "play.fill")
-                            .font(.headline)
-                            .padding(.horizontal, 26).padding(.vertical, 9)
-                            .background(.white, in: RoundedRectangle(cornerRadius: 5))
-                            .foregroundStyle(.black)
+                .overlay(alignment: .topTrailing) {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.white.opacity(0.85))
+                            .shadow(radius: 4)
                     }
                     .buttonStyle(.plain)
+                    .padding(14)
+                }
 
-                    if let key = ratingKey {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(spacing: 12) {
                         Button {
-                            watched.toggle()
-                            streamer.plexSetWatched(ratingKey: key, watched: watched)
+                            if let url = streamer.resolveStream(movie.stream_url) {
+                                dismiss()
+                                let resume = movie.view_offset_secs
+                                    ?? WatchProgress.position(for: movie.progress_key)
+                                onPlay(url, movie.title, movie.progress_key, resume)
+                            }
                         } label: {
-                            Image(systemName: watched ? "checkmark.circle.fill" : "checkmark.circle")
-                                .font(.title2)
+                            Label(movie.view_offset_secs != nil ? "Resume" : "Play",
+                                  systemImage: "play.fill")
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
+                                .padding(.horizontal, 30).padding(.vertical, 11)
+                                .background(.white, in: Capsule())
+                                .foregroundStyle(.black)
                         }
                         .buttonStyle(.plain)
-                        .help(watched ? "Mark unwatched" : "Mark watched")
 
-                        starRating(key: key)
+                        if let key = ratingKey {
+                            Button {
+                                watched.toggle()
+                                streamer.plexSetWatched(ratingKey: key, watched: watched)
+                            } label: {
+                                Image(systemName: watched ? "checkmark.circle.fill" : "checkmark.circle")
+                                    .font(.title2)
+                            }
+                            .buttonStyle(.plain)
+                            .help(watched ? "Mark unwatched" : "Mark watched")
+
+                            starRating(key: key)
+                        }
+                    }
+
+                    if let o = movie.view_offset_secs, let d = movie.duration_secs, d > 0 {
+                        VStack(alignment: .leading, spacing: 5) {
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(.white.opacity(0.15)).frame(height: 4)
+                                GeometryReader { geo in
+                                    Capsule().fill(progressRed)
+                                        .frame(width: geo.size.width * o / d, height: 4)
+                                }
+                                .frame(height: 4)
+                            }
+                            Text("\(Int((d - o) / 60)) min left")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    if let overview = movie.overview {
+                        Text(overview)
+                            .font(.system(size: 14))
+                            .foregroundStyle(.white.opacity(0.85))
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-
-                if let overview = movie.overview {
-                    Text(overview)
-                        .font(.system(size: 14))
-                        .foregroundStyle(.white.opacity(0.85))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(22)
             }
-            .padding(20)
         }
         #if os(macOS)
-        .frame(width: 620, height: 560)
+        .frame(width: 720, height: 660)
         #endif
         .background(canvasColor)
         .preferredColorScheme(.dark)
@@ -1217,7 +1339,8 @@ struct MovieDetailSheet: View {
     }
 }
 
-/// Episode picker for a show, grouped by season, over the show's backdrop.
+/// Streaming-service style show page: full backdrop, season selector,
+/// episode rows with artwork, titles and synopses.
 struct ShowDetailSheet: View {
     let show: StreamerManager.LibraryShow
     let episodes: [StreamerManager.LibraryEpisode]
@@ -1225,51 +1348,112 @@ struct ShowDetailSheet: View {
     let onPlay: (URL, String, String, Double?) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var selectedSeason: UInt16?
 
     private var seasons: [(UInt16, [StreamerManager.LibraryEpisode])] {
         Dictionary(grouping: episodes, by: \.season)
+            .mapValues { $0.sorted { $0.episode < $1.episode } }
             .sorted { $0.key < $1.key }
     }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            ZStack(alignment: .bottomLeading) {
-                FadeInImage(url: show.backdrop_url.flatMap(URL.init))
-                .frame(height: 200)
-                .clipped()
-                LinearGradient(colors: [.clear, .black.opacity(0.9)], startPoint: .top, endPoint: .bottom)
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(show.name).font(.largeTitle.bold())
-                        Text("\(show.episode_count) episodes")
-                            .foregroundStyle(.white.opacity(0.7))
-                    }
-                    Spacer()
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark.circle.fill").font(.title2)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(16)
-            }
+    /// Default to the season the viewer is currently in.
+    private var currentSeason: UInt16 {
+        if let selectedSeason { return selectedSeason }
+        let ordered = episodes.sorted { ($0.season, $0.episode) < ($1.season, $1.episode) }
+        if let current = ordered.first(where: { $0.view_offset_secs != nil && !$0.watched }) {
+            return current.season
+        }
+        if let next = ordered.first(where: { !$0.watched }) { return next.season }
+        return seasons.first?.0 ?? 1
+    }
 
-            List {
-                if let overview = show.overview {
-                    Text(overview).font(.callout).foregroundStyle(.secondary)
-                }
-                ForEach(seasons, id: \.0) { season, eps in
-                    Section("Season \(season)") {
-                        ForEach(eps) { ep in
-                            episodeRow(ep)
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                header
+                VStack(alignment: .leading, spacing: 18) {
+                    if let overview = show.overview {
+                        Text(overview)
+                            .font(.system(size: 13.5))
+                            .foregroundStyle(.white.opacity(0.75))
+                            .lineLimit(4)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if seasons.count > 1 { seasonPicker }
+                    LazyVStack(spacing: 14) {
+                        if let eps = seasons.first(where: { $0.0 == currentSeason })?.1 {
+                            ForEach(eps) { ep in
+                                episodeRow(ep)
+                            }
                         }
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(22)
             }
         }
         #if os(macOS)
-        .frame(width: 560, height: 640)
+        .frame(width: 760, height: 720)
         #endif
+        .background(canvasColor)
         .preferredColorScheme(.dark)
+    }
+
+    private var header: some View {
+        ZStack(alignment: .bottomLeading) {
+            FadeInImage(url: show.backdrop_url.flatMap(URL.init))
+                .aspectRatio(16 / 9, contentMode: .fit)
+                .clipped()
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0.4),
+                    .init(color: canvasColor.opacity(0.9), location: 0.92),
+                    .init(color: canvasColor, location: 1.0),
+                ],
+                startPoint: .top, endPoint: .bottom)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(show.name)
+                    .font(.system(size: 36, weight: .black, design: .rounded))
+                    .shadow(color: .black.opacity(0.8), radius: 8)
+                HStack(spacing: 10) {
+                    Text("SERIES")
+                    Text("\(seasons.count == 1 ? "1 season" : "\(seasons.count) seasons")")
+                    Text("\(show.episode_count) episodes")
+                }
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.8))
+            }
+            .padding(22)
+        }
+        .overlay(alignment: .topTrailing) {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.white.opacity(0.85))
+                    .shadow(radius: 4)
+            }
+            .buttonStyle(.plain)
+            .padding(14)
+        }
+    }
+
+    private var seasonPicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(seasons, id: \.0) { season, _ in
+                    let selected = season == currentSeason
+                    Button { selectedSeason = season } label: {
+                        Text(season == 0 ? "Specials" : "Season \(season)")
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .padding(.horizontal, 16).padding(.vertical, 8)
+                            .background(selected ? AnyShapeStyle(.white) : AnyShapeStyle(.white.opacity(0.08)),
+                                        in: Capsule())
+                            .foregroundStyle(selected ? .black : .white)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -1283,20 +1467,59 @@ struct ShowDetailSheet: View {
                 onPlay(url, "\(show.name) S\(ep.season)E\(ep.episode)", ep.progress_key, resume)
             }
         } label: {
-            HStack {
-                Text(String(format: "E%02d", ep.episode))
-                    .font(.body.monospacedDigit())
-                if ep.watched {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green.opacity(0.7))
-                        .font(.caption)
+            HStack(alignment: .top, spacing: 14) {
+                // Episode still with progress + watched state.
+                ZStack {
+                    FadeInImage(url: ep.thumb_url.flatMap(URL.init))
+                        .frame(width: 192, height: 108)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 30))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .shadow(radius: 6)
                 }
-                Spacer()
-                if let o = ep.view_offset_secs, let d = ep.duration_secs, d > 0 {
-                    ProgressView(value: o / d)
-                        .frame(width: 60)
-                        .tint(progressRed)
+                .overlay(alignment: .bottom) {
+                    if let o = ep.view_offset_secs, let d = ep.duration_secs, d > 0 {
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(.white.opacity(0.3)).frame(height: 3)
+                            Capsule().fill(progressRed)
+                                .frame(width: max(6, 180 * o / d), height: 3)
+                        }
+                        .frame(width: 180)
+                        .padding(.bottom, 6)
+                    }
                 }
+                .overlay(alignment: .topTrailing) {
+                    if ep.watched {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 15))
+                            .foregroundStyle(.white, .green.opacity(0.9))
+                            .padding(5)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("\(ep.episode). \(ep.title ?? "Episode \(ep.episode)")")
+                            .font(.system(size: 14.5, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        Spacer()
+                        if let d = ep.duration_secs {
+                            Text("\(Int(d / 60))m")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    if let overview = ep.overview, !overview.isEmpty {
+                        Text(overview)
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(.white.opacity(0.6))
+                            .lineLimit(3)
+                            .multilineTextAlignment(.leading)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .contentShape(Rectangle())
         }
