@@ -41,6 +41,9 @@ final class StreamerManager: ObservableObject {
         ]
         var env = ProcessInfo.processInfo.environment
         env["MEDIACORED_PASSWORD"] = password
+        if let tmdbKey = UserDefaults.standard.string(forKey: "tmdbApiKey"), !tmdbKey.isEmpty {
+            env["MEDIACORED_TMDB_KEY"] = tmdbKey
+        }
         proc.environment = env
 
         let pipe = Pipe()

@@ -40,6 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(db) = &args.db {
         streamer = streamer.with_index(mediacore::index::Index::open(db)?);
     }
+    streamer = streamer.with_tmdb_key(std::env::var("MEDIACORED_TMDB_KEY").ok());
     let addr = streamer.serve(args.port).await?;
     // Machine-readable ready line — the app parses this to find the port.
     println!("LISTEN http://{addr}");

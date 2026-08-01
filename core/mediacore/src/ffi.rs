@@ -29,6 +29,7 @@ pub fn start_streamer(
     username: String,
     password: String,
     db_path: Option<String>,
+    tmdb_api_key: Option<String>,
 ) -> Result<String, CoreError> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -45,6 +46,7 @@ pub fn start_streamer(
                 .map_err(|e| CoreError::Serve { msg: e.to_string() })?;
             streamer = streamer.with_index(index);
         }
+        streamer = streamer.with_tmdb_key(tmdb_api_key.clone());
         streamer
             .serve(0)
             .await

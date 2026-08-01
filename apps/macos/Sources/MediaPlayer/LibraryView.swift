@@ -66,7 +66,15 @@ struct LibraryView: View {
             Button {
                 play(path: movie.path, name: movie.title)
             } label: {
-                HStack {
+                HStack(spacing: 8) {
+                    AsyncImage(url: movie.poster_url.flatMap(URL.init)) { image in
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    } placeholder: {
+                        Rectangle().fill(.quaternary)
+                            .overlay(Image(systemName: "film").foregroundStyle(.secondary))
+                    }
+                    .frame(width: 34, height: 51)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(movie.title).lineLimit(1)
                         HStack(spacing: 6) {
@@ -86,6 +94,7 @@ struct LibraryView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .help(movie.overview ?? movie.title)
         }
         .listStyle(.sidebar)
     }

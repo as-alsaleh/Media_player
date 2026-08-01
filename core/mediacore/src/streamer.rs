@@ -24,6 +24,7 @@ const CHUNK: usize = 1024 * 1024;
 pub struct AppState {
     pub fs: Arc<SmbFs>,
     pub index: Option<Arc<Index>>,
+    pub tmdb_key: Option<String>,
 }
 
 pub struct Streamer {
@@ -32,11 +33,16 @@ pub struct Streamer {
 
 impl Streamer {
     pub fn new(fs: SmbFs) -> Self {
-        Self { state: AppState { fs: Arc::new(fs), index: None } }
+        Self { state: AppState { fs: Arc::new(fs), index: None, tmdb_key: None } }
     }
 
     pub fn with_index(mut self, index: Index) -> Self {
         self.state.index = Some(Arc::new(index));
+        self
+    }
+
+    pub fn with_tmdb_key(mut self, key: Option<String>) -> Self {
+        self.state.tmdb_key = key.filter(|k| !k.is_empty());
         self
     }
 
@@ -83,7 +89,14 @@ async fn library_scan(
     let movies_root = q.get("movies").map(String::as_str).unwrap_or("movies");
     let tv_root = q.get("tv").map(String::as_str).unwrap_or("tv");
     match index.scan(&st.fs, movies_root, tv_root).await {
-        Ok((m, e)) => Json(serde_json::json!({"movies": m, "episodes": e})).into_response(),
+        Ok((m, e)) => {
+            let enriched = match &st.tmdb_key {
+                Some(key) => crate::tmdb::enrich_movies(&index, key).await,
+                None => 0,
+            };
+            Json(serde_json::json!({"movies": m, "episodes": e, "enriched": enriched}))
+                .into_response()
+        }
         Err(err) => (StatusCode::BAD_GATEWAY, err.to_string()).into_response(),
     }
 }

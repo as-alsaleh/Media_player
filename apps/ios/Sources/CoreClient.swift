@@ -41,7 +41,9 @@ final class CoreClient: ObservableObject {
             do {
                 let url = try startStreamer(
                     server: server, share: share, username: username,
-                    password: password, dbPath: db.path)
+                    password: password, dbPath: db.path,
+                    tmdbApiKey: ProcessInfo.processInfo.environment["MEDIAPLAYER_TMDB_KEY"]
+                        ?? UserDefaults.standard.string(forKey: "tmdbApiKey"))
                 await MainActor.run { [weak self] in self?.baseURL = URL(string: url) }
             } catch {
                 await MainActor.run { [weak self] in

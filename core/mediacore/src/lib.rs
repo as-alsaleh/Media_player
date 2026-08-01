@@ -9,6 +9,7 @@ pub mod index;
 pub mod parse;
 pub mod smb;
 pub mod streamer;
+pub mod tmdb;
 
 pub use streamer::Streamer;
 
