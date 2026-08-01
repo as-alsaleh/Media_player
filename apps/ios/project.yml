@@ -23,6 +23,7 @@ targets:
       - path: ../macos/Sources/MediaPlayer/ShareStore.swift
       - path: ../macos/Sources/MediaPlayer/PlayerSettingsView.swift
       - path: ../macos/Sources/MediaPlayer/SettingsView.swift
+      - path: ../macos/Sources/MediaPlayer/PlexAuthButton.swift
       - path: ../../build/mediacore/bindings/mediacore.swift
     dependencies:
       - package: MPVKit
@@ -53,6 +54,7 @@ targets:
       - path: ../macos/Sources/MediaPlayer/ShareStore.swift
       - path: ../macos/Sources/MediaPlayer/PlayerSettingsView.swift
       - path: ../macos/Sources/MediaPlayer/SettingsView.swift
+      - path: ../macos/Sources/MediaPlayer/PlexAuthButton.swift
       - path: ../../build/mediacore/bindings/mediacore.swift
     dependencies:
       - package: MPVKit

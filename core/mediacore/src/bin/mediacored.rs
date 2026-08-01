@@ -9,11 +9,11 @@ use mediacore::{smb::SmbFs, Streamer};
 #[derive(Parser)]
 struct Args {
     #[arg(long)]
-    server: String,
+    server: Option<String>,
     #[arg(long)]
-    share: String,
+    share: Option<String>,
     #[arg(long)]
-    user: String,
+    user: Option<String>,
     /// File containing the SMB password (avoids exposing it in `ps`).
     /// Alternatively set MEDIACORED_PASSWORD in the environment.
     #[arg(long)]
@@ -34,12 +34,17 @@ struct Args {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
     let args = Args::parse();
-    let password = match &args.password_file {
-        Some(p) => std::fs::read_to_string(p)?,
-        None => std::env::var("MEDIACORED_PASSWORD")
-            .map_err(|_| "no --password-file and MEDIACORED_PASSWORD not set")?,
+    let fs = match (&args.server, &args.share, &args.user) {
+        (Some(server), Some(share), Some(user)) => {
+            let password = match &args.password_file {
+                Some(p) => std::fs::read_to_string(p)?,
+                None => std::env::var("MEDIACORED_PASSWORD")
+                    .map_err(|_| "no --password-file and MEDIACORED_PASSWORD not set")?,
+            };
+            Some(SmbFs::connect(server, share, user, password.trim()).await?)
+        }
+        _ => None,
     };
-    let fs = SmbFs::connect(&args.server, &args.share, &args.user, password.trim()).await?;
     let mut streamer = Streamer::new(fs);
     if let Some(db) = &args.db {
         streamer = streamer.with_index(mediacore::index::Index::open(db)?);
@@ -61,6 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = streamer.serve(args.port).await?;
     // Machine-readable ready line — the app parses this to find the port.
     println!("LISTEN http://{addr}");
+    let _ = &args; // server/share/user consumed above
     use std::io::Write;
     std::io::stdout().flush()?;
     tokio::signal::ctrl_c().await?;

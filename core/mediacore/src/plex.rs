@@ -31,6 +31,7 @@ pub struct PlexMovie {
     pub watched: bool,
     pub last_viewed_at: Option<u64>,
     pub duration_secs: Option<f64>,
+    pub tmdb_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -55,6 +56,7 @@ pub struct PlexShow {
     pub poster_url: Option<String>,
     pub backdrop_url: Option<String>,
     pub overview: Option<String>,
+    pub tmdb_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -121,8 +123,15 @@ struct Item {
     duration: Option<u64>,
     #[serde(rename = "Marker", default)]
     markers: Vec<MarkerRaw>,
+    #[serde(rename = "Guid", default)]
+    guids: Vec<GuidRaw>,
     #[serde(rename = "Media", default)]
     media: Vec<Media>,
+}
+
+#[derive(Deserialize)]
+struct GuidRaw {
+    id: String,
 }
 
 #[derive(Deserialize)]
@@ -146,6 +155,12 @@ impl Item {
 
     fn watched(&self) -> bool {
         self.view_count.unwrap_or(0) > 0
+    }
+
+    fn tmdb_id(&self) -> Option<u64> {
+        self.guids.iter().find_map(|g| {
+            g.id.strip_prefix("tmdb://").and_then(|v| v.parse().ok())
+        })
     }
 }
 
@@ -339,6 +354,7 @@ impl PlexSource {
                     watched: item.watched(),
                     last_viewed_at: item.last_viewed_at,
                     duration_secs: item.duration_secs(),
+                    tmdb_id: item.tmdb_id(),
                 });
             }
         }
@@ -360,6 +376,7 @@ impl PlexSource {
                     poster_url: self.image(&item.thumb),
                     backdrop_url: self.image(&item.art),
                     overview: item.summary.clone(),
+                    tmdb_id: item.tmdb_id(),
                 });
             }
         }

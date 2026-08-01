@@ -23,8 +23,8 @@ final class StreamerManager: ObservableObject {
 
     #if os(macOS)
     private var process: Process?
-    private var lastConfig: ShareConfig?
-    private var lastPassword: String?
+    private var lastConfig: ShareConfig??
+    private var lastPassword: String??
     private var restartAttempts = 0
 
     static var helperURL: URL {
@@ -33,7 +33,17 @@ final class StreamerManager: ObservableObject {
             .appendingPathComponent("Contents/MacOS/mediacored")
     }
 
+    /// Start without a file share — Plex-only mode (also used for onboarding
+    /// so the login endpoints are reachable before anything is configured).
+    func startPlexOnly() {
+        start(config: nil, password: nil)
+    }
+
     func start(config: ShareConfig, password: String) {
+        start(config: Optional(config), password: Optional(password))
+    }
+
+    private func start(config: ShareConfig?, password: String?) {
         stop()
         lastError = nil
         lastConfig = config
@@ -46,14 +56,18 @@ final class StreamerManager: ObservableObject {
         let proc = Process()
         proc.executableURL = Self.helperURL
         proc.arguments = [
-            "--server", config.server,
-            "--share", config.share,
-            "--user", config.username,
             "--port", "0",
             "--db", support.appendingPathComponent("library.sqlite").path,
         ]
         var env = ProcessInfo.processInfo.environment
-        env["MEDIACORED_PASSWORD"] = password
+        if let config, let password {
+            proc.arguments?.append(contentsOf: [
+                "--server", config.server,
+                "--share", config.share,
+                "--user", config.username,
+            ])
+            env["MEDIACORED_PASSWORD"] = password
+        }
         if let tmdbKey = UserDefaults.standard.string(forKey: "tmdbApiKey"), !tmdbKey.isEmpty {
             env["MEDIACORED_TMDB_KEY"] = tmdbKey
         }
@@ -115,6 +129,7 @@ final class StreamerManager: ObservableObject {
     /// Restart with backoff after an unexpected helper death.
     private func attemptRestart(reason: String) {
         guard let config = lastConfig, let password = lastPassword else { return }
+        // Double-optionals: outer = "have we started before", inner = mode.
         guard restartAttempts < 3 else {
             lastError = "\(reason) — gave up after 3 retries. Check the server and Settings."
             return
@@ -125,7 +140,7 @@ final class StreamerManager: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, self.baseURL == nil else { return }
             let attempts = self.restartAttempts
-            self.start(config: config, password: password)
+            self.start(config: config, password: password)  // preserves mode
             self.restartAttempts = attempts
         }
     }
@@ -159,6 +174,7 @@ final class StreamerManager: ObservableObject {
         let watched: Bool
         let last_viewed_at: UInt64?
         let duration_secs: Double?
+        let tmdb_id: UInt64?
         var id: String { uid }
     }
 
@@ -185,6 +201,7 @@ final class StreamerManager: ObservableObject {
         let watched: Bool
         let last_viewed_at: UInt64?
         let duration_secs: Double?
+        let show_tmdb_id: UInt64?
         var id: String { uid }
     }
 
@@ -256,6 +273,39 @@ final class StreamerManager: ObservableObject {
         return try? JSONDecoder().decode(PlexLoginResult.self, from: data)
     }
 
+    struct TraktCode: Codable {
+        let device_code: String
+        let user_code: String
+        let verification_url: String
+        let interval: UInt64
+    }
+
+    struct TraktResult: Codable {
+        let pending: Bool
+        let access_token: String?
+        let refresh_token: String?
+    }
+
+    func traktLoginStart(clientId: String) async -> TraktCode? {
+        guard let baseURL else { return nil }
+        var comps = URLComponents(url: baseURL.appendingPathComponent("trakt/login/start"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "client_id", value: clientId)]
+        guard let (data, _) = try? await URLSession.shared.data(from: comps.url!) else { return nil }
+        return try? JSONDecoder().decode(TraktCode.self, from: data)
+    }
+
+    func traktLoginPoll(clientId: String, clientSecret: String, deviceCode: String) async -> TraktResult? {
+        guard let baseURL else { return nil }
+        var comps = URLComponents(url: baseURL.appendingPathComponent("trakt/login/poll"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [
+            URLQueryItem(name: "client_id", value: clientId),
+            URLQueryItem(name: "client_secret", value: clientSecret),
+            URLQueryItem(name: "device_code", value: deviceCode),
+        ]
+        guard let (data, _) = try? await URLSession.shared.data(from: comps.url!) else { return nil }
+        return try? JSONDecoder().decode(TraktResult.self, from: data)
+    }
+
     struct PlexMarker: Codable, Hashable {
         let kind: String     // "intro" | "credits" | "commercial"
         let start_secs: Double
@@ -289,6 +339,27 @@ final class StreamerManager: ObservableObject {
         var comps = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         comps.queryItems = items
         URLSession.shared.dataTask(with: comps.url!).resume()
+    }
+
+    /// Fire-and-forget Trakt scrobble; no-op unless Trakt is connected.
+    func traktScrobble(state: String, progress: Double,
+                       kind: String, tmdb: UInt64,
+                       season: UInt16? = nil, episode: UInt16? = nil) {
+        let d = UserDefaults.standard
+        guard let token = d.string(forKey: "traktAccessToken"), !token.isEmpty,
+              let clientId = d.string(forKey: "traktClientId"), !clientId.isEmpty
+        else { return }
+        var items = [
+            URLQueryItem(name: "client_id", value: clientId),
+            URLQueryItem(name: "token", value: token),
+            URLQueryItem(name: "state", value: state),
+            URLQueryItem(name: "progress", value: String(format: "%.1f", progress)),
+            URLQueryItem(name: "kind", value: kind),
+            URLQueryItem(name: "tmdb", value: String(tmdb)),
+        ]
+        if let season { items.append(URLQueryItem(name: "season", value: String(season))) }
+        if let episode { items.append(URLQueryItem(name: "episode", value: String(episode))) }
+        fireAndForget("trakt/scrobble", items)
     }
 
     func reportPlexProgress(ratingKey: String, time: Double, duration: Double, state: String) {

@@ -37,11 +37,14 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            if streamer.baseURL != nil {
+            if needsOnboarding {
+                OnboardingView(streamer: streamer) {
+                    refreshTick += 1
+                    autoConnect()
+                }
+            } else {
                 BrowseView(streamer: streamer, refreshTick: refreshTick,
                            onReconnect: autoConnect, onPlay: startPlayback)
-            } else {
-                setup
             }
 
             // Player stays mounted so mpv's render surface survives; it is
@@ -63,21 +66,12 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
     }
 
-    private var setup: some View {
-        ZStack {
-            Color(red: 0.08, green: 0.08, blue: 0.09).ignoresSafeArea()
-            VStack(spacing: 16) {
-                Text("MediaPlayer")
-                    .font(.system(size: 40, weight: .heavy))
-                ShareSetupView { config, password in
-                    ShareStore.save(config, password: password)
-                    streamer.start(config: config, password: password)
-                }
-                if let err = streamer.lastError {
-                    Text(err).foregroundStyle(.red).font(.caption)
-                }
-            }
-        }
+    /// First run: nothing configured yet — show the Plex sign-in.
+    private var needsOnboarding: Bool {
+        _ = refreshTick  // re-evaluate after login
+        let d = UserDefaults.standard
+        let hasPlex = !(d.string(forKey: "plexToken") ?? "").isEmpty
+        return !hasPlex && ShareStore.load() == nil
     }
 
     /// Marker (intro/credits/commercial) covering the current position.
@@ -112,7 +106,7 @@ struct ContentView: View {
 
     private func closePlayer() {
         if !player.isPaused { player.togglePause() }
-        saveProgress()
+        saveProgress(traktState: "stop")
         showPlayer = false
         refreshTick += 1  // re-pull library so Continue Watching updates
     }
@@ -312,7 +306,7 @@ struct ContentView: View {
         }
     }
 
-    private func saveProgress() {
+    private func saveProgress(traktState: String? = nil) {
         guard let path = nowPlayingPath, player.duration > 0 else { return }
         WatchProgress.save(path: path, position: player.timePos, duration: player.duration)
         // Mirror progress to Plex so its watch history stays in sync.
@@ -323,13 +317,25 @@ struct ContentView: View {
                 duration: player.duration,
                 state: player.isPaused ? "paused" : "playing")
         }
+        // And to Trakt, when connected.
+        if let ident = NowPlaying.trakt {
+            let state = traktState ?? (player.isPaused ? "pause" : "start")
+            streamer.traktScrobble(
+                state: state,
+                progress: player.timePos / player.duration * 100,
+                kind: ident.kind, tmdb: ident.tmdb,
+                season: ident.season, episode: ident.episode)
+        }
     }
 
     private func autoConnect() {
-        guard let config = ShareStore.load(),
-              let password = ShareStore.password(for: config)
-        else { return }
-        streamer.start(config: config, password: password)
+        if let config = ShareStore.load(),
+           let password = ShareStore.password(for: config) {
+            streamer.start(config: config, password: password)
+        } else {
+            // Plex-only (or onboarding): engine still hosts the login flow.
+            streamer.startPlexOnly()
+        }
     }
 
     private func format(_ t: Double) -> String {

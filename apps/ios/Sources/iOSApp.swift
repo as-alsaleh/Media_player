@@ -30,11 +30,14 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if streamer.baseURL != nil {
+            if needsOnboarding {
+                OnboardingView(streamer: streamer) {
+                    refreshTick += 1
+                    startCore()
+                }
+            } else {
                 BrowseView(streamer: streamer, refreshTick: refreshTick,
                            onReconnect: startCore, onPlay: startPlayback)
-            } else {
-                connectForm
             }
         }
         .fullScreenCover(isPresented: $showPlayer) {
@@ -45,16 +48,14 @@ struct RootView: View {
                 markers: markers,
                 onClose: {
                     if !player.isPaused { player.togglePause() }
-                    saveProgress()
+                    saveProgress(traktState: "stop")
                     showPlayer = false
                     refreshTick += 1
                 })
         }
         .onAppear {
             streamer.onUserSwitched = { startCore() }
-            if !server.isEmpty, !share.isEmpty, !password.isEmpty {
-                startCore()
-            }
+            startCore()
         }
         .onReceive(progressTimer) { _ in saveProgress() }
         .preferredColorScheme(.dark)
@@ -64,29 +65,11 @@ struct RootView: View {
         ProcessInfo.processInfo.environment["MEDIAPLAYER_PASSWORD"] ?? storedPassword
     }
 
-    private var connectForm: some View {
-        NavigationStack {
-            Form {
-                Section("SMB Share") {
-                    TextField("Server", text: $server)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    TextField("Share", text: $share)
-                        .textInputAutocapitalization(.never)
-                    TextField("Username", text: $username)
-                        .textInputAutocapitalization(.never)
-                    SecureField("Password", text: $storedPassword)
-                }
-                Button(connecting ? "Connecting…" : "Connect") {
-                    startCore()
-                }
-                .disabled(connecting || server.isEmpty || share.isEmpty)
-                if let err = streamer.lastError {
-                    Text(err).foregroundStyle(.red).font(.caption)
-                }
-            }
-            .navigationTitle("MediaPlayer")
-        }
+    private var needsOnboarding: Bool {
+        _ = refreshTick
+        let d = UserDefaults.standard
+        let hasPlex = !(d.string(forKey: "plexServerURL") ?? (ProcessInfo.processInfo.environment["MEDIAPLAYER_PLEX_URL"] ?? "")).isEmpty
+        return !hasPlex && server.isEmpty
     }
 
     private func startCore() {
@@ -151,7 +134,7 @@ struct RootView: View {
         }
     }
 
-    private func saveProgress() {
+    private func saveProgress(traktState: String? = nil) {
         guard let path = nowPlayingPath, player.duration > 0 else { return }
         WatchProgress.save(path: path, position: player.timePos, duration: player.duration)
         if path.hasPrefix("plex:") {
@@ -160,6 +143,14 @@ struct RootView: View {
                 time: player.timePos,
                 duration: player.duration,
                 state: player.isPaused ? "paused" : "playing")
+        }
+        if let ident = NowPlaying.trakt {
+            let state = traktState ?? (player.isPaused ? "pause" : "start")
+            streamer.traktScrobble(
+                state: state,
+                progress: player.timePos / player.duration * 100,
+                kind: ident.kind, tmdb: ident.tmdb,
+                season: ident.season, episode: ident.episode)
         }
     }
 }

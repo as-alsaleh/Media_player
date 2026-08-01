@@ -40,9 +40,15 @@ pub fn start_streamer(
         .map_err(|e| CoreError::Serve { msg: e.to_string() })?;
 
     let addr = runtime.block_on(async {
-        let fs = SmbFs::connect(&server, &share, &username, &password)
-            .await
-            .map_err(|e| CoreError::Connect { msg: e.to_string() })?;
+        let fs = if server.is_empty() {
+            None
+        } else {
+            Some(
+                SmbFs::connect(&server, &share, &username, &password)
+                    .await
+                    .map_err(|e| CoreError::Connect { msg: e.to_string() })?,
+            )
+        };
         let mut streamer = Streamer::new(fs);
         if let Some(db) = &db_path {
             let index = Index::open(std::path::Path::new(db))

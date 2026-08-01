@@ -22,7 +22,7 @@ const CHUNK: usize = 1024 * 1024;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub fs: Arc<SmbFs>,
+    pub fs: Option<Arc<SmbFs>>,
     pub index: Option<Arc<Index>>,
     pub tmdb_key: Option<String>,
     pub plex: Option<Arc<crate::plex::PlexSource>>,
@@ -53,6 +53,7 @@ struct MovieOut {
     watched: bool,
     last_viewed_at: Option<u64>,
     duration_secs: Option<f64>,
+    tmdb_id: Option<u64>,
 }
 
 /// Loose identity for cross-source dedup: lowercase alphanumerics only.
@@ -87,6 +88,7 @@ struct EpisodeOut {
     watched: bool,
     last_viewed_at: Option<u64>,
     duration_secs: Option<f64>,
+    show_tmdb_id: Option<u64>,
 }
 
 fn local_stream_url(path: &str) -> String {
@@ -114,10 +116,10 @@ pub struct Streamer {
 }
 
 impl Streamer {
-    pub fn new(fs: SmbFs) -> Self {
+    pub fn new(fs: Option<SmbFs>) -> Self {
         Self {
             state: AppState {
-                fs: Arc::new(fs),
+                fs: fs.map(Arc::new),
                 index: None,
                 tmdb_key: None,
                 plex: None,
@@ -170,6 +172,9 @@ impl Streamer {
             .route("/plex/watched", get(plex_watched))
             .route("/plex/login/start", get(plex_login_start))
             .route("/plex/login/poll", get(plex_login_poll))
+            .route("/trakt/login/start", get(trakt_login_start))
+            .route("/trakt/login/poll", get(trakt_login_poll))
+            .route("/trakt/scrobble", get(trakt_scrobble))
             .with_state(self.state);
         let listener =
             tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port))).await?;
@@ -190,8 +195,11 @@ async fn list(
     if st.restricted {
         return (StatusCode::FORBIDDEN, "restricted profile").into_response();
     }
+    let Some(fs) = &st.fs else {
+        return (StatusCode::NOT_IMPLEMENTED, "no file share configured").into_response();
+    };
     let path = q.get("path").map(String::as_str).unwrap_or("");
-    match st.fs.list_dir(path).await {
+    match fs.list_dir(path).await {
         Ok(entries) => Json(entries).into_response(),
         Err(e) => (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
     }
@@ -204,9 +212,18 @@ async fn library_scan(
     let Some(index) = st.index else {
         return (StatusCode::NOT_IMPLEMENTED, "no index configured").into_response();
     };
+    let Some(fs) = &st.fs else {
+        // Plex-only mode: nothing to scan, but enrichment can still run.
+        let enriched = match &st.tmdb_key {
+            Some(key) => crate::tmdb::enrich(&index, key).await,
+            None => 0,
+        };
+        return Json(serde_json::json!({"movies": 0, "episodes": 0, "enriched": enriched}))
+            .into_response();
+    };
     let movies_root = q.get("movies").map(String::as_str).unwrap_or("movies");
     let tv_root = q.get("tv").map(String::as_str).unwrap_or("tv");
-    match index.scan(&st.fs, movies_root, tv_root).await {
+    match index.scan(fs, movies_root, tv_root).await {
         Ok((m, e)) => {
             let enriched = match &st.tmdb_key {
                 Some(key) => crate::tmdb::enrich(&index, key).await,
@@ -223,7 +240,7 @@ async fn library_movies(State(st): State<AppState>) -> Response {
     // Keyed by normalized title(+year); Plex wins on collision because it
     // carries watch state and richer metadata.
     let mut map: HashMap<String, MovieOut> = HashMap::new();
-    if let (false, Some(Ok(rows))) = (st.restricted, st.index.as_ref().map(|i| i.movies())) {
+    if let (false, true, Some(Ok(rows))) = (st.restricted, st.fs.is_some(), st.index.as_ref().map(|i| i.movies())) {
         for m in rows {
             let key = format!("{}|{}", norm(&m.title), m.year.unwrap_or(0));
             map.insert(
@@ -242,6 +259,7 @@ async fn library_movies(State(st): State<AppState>) -> Response {
                     watched: false,
                     last_viewed_at: None,
                     duration_secs: None,
+                    tmdb_id: None,
                 },
             );
         }
@@ -265,6 +283,7 @@ async fn library_movies(State(st): State<AppState>) -> Response {
                     watched: m.watched,
                     last_viewed_at: m.last_viewed_at,
                     duration_secs: m.duration_secs,
+                    tmdb_id: m.tmdb_id,
                 },
             );
         }
@@ -276,7 +295,7 @@ async fn library_movies(State(st): State<AppState>) -> Response {
 
 async fn library_episodes(State(st): State<AppState>) -> Response {
     let mut map: HashMap<String, EpisodeOut> = HashMap::new();
-    if let (false, Some(Ok(rows))) = (st.restricted, st.index.as_ref().map(|i| i.episodes())) {
+    if let (false, true, Some(Ok(rows))) = (st.restricted, st.fs.is_some(), st.index.as_ref().map(|i| i.episodes())) {
         for e in rows {
             let key = format!("{}|{}|{}", norm(&e.show), e.season, e.episode);
             map.insert(
@@ -293,17 +312,25 @@ async fn library_episodes(State(st): State<AppState>) -> Response {
                     watched: false,
                     last_viewed_at: None,
                     duration_secs: None,
+                    show_tmdb_id: None,
                 },
             );
         }
     }
     if let Some(plex) = &st.plex {
+        let show_ids: HashMap<String, Option<u64>> = plex
+            .shows()
+            .await
+            .into_iter()
+            .map(|s| (norm(&s.name), s.tmdb_id))
+            .collect();
         for e in plex.episodes().await {
             let key = format!("{}|{}|{}", norm(&e.show), e.season, e.episode);
             map.insert(
                 key,
                 EpisodeOut {
                     uid: format!("plex-e{}", e.rating_key),
+                    show_tmdb_id: show_ids.get(&norm(&e.show)).copied().flatten(),
                     show: e.show,
                     season: e.season,
                     episode: e.episode,
@@ -328,7 +355,7 @@ async fn library_episodes(State(st): State<AppState>) -> Response {
 
 async fn library_shows(State(st): State<AppState>) -> Response {
     let mut map: HashMap<String, ShowOut> = HashMap::new();
-    if let (false, Some(Ok(rows))) = (st.restricted, st.index.as_ref().map(|i| i.shows())) {
+    if let (false, true, Some(Ok(rows))) = (st.restricted, st.fs.is_some(), st.index.as_ref().map(|i| i.shows())) {
         for s in rows {
             map.insert(
                 norm(&s.name),
@@ -451,6 +478,74 @@ async fn plex_login_poll(Query(q): Query<HashMap<String, String>>) -> Response {
     }
 }
 
+async fn trakt_login_start(Query(q): Query<HashMap<String, String>>) -> Response {
+    let Some(client_id) = q.get("client_id") else {
+        return (StatusCode::BAD_REQUEST, "client_id required").into_response();
+    };
+    match crate::trakt::device_code(client_id).await {
+        Some(code) => Json(code).into_response(),
+        None => (StatusCode::BAD_GATEWAY, "trakt.tv unreachable").into_response(),
+    }
+}
+
+async fn trakt_login_poll(Query(q): Query<HashMap<String, String>>) -> Response {
+    let (Some(id), Some(secret), Some(code)) = (
+        q.get("client_id"),
+        q.get("client_secret"),
+        q.get("device_code"),
+    ) else {
+        return (StatusCode::BAD_REQUEST, "client_id, client_secret, device_code required")
+            .into_response();
+    };
+    match crate::trakt::device_token(id, secret, code).await {
+        Some(t) => Json(serde_json::json!({
+            "pending": false,
+            "access_token": t.access_token,
+            "refresh_token": t.refresh_token,
+        }))
+        .into_response(),
+        None => Json(serde_json::json!({"pending": true})).into_response(),
+    }
+}
+
+async fn trakt_scrobble(Query(q): Query<HashMap<String, String>>) -> Response {
+    let (Some(client_id), Some(token), Some(state), Some(progress), Some(kind)) = (
+        q.get("client_id"),
+        q.get("token"),
+        q.get("state"),
+        q.get("progress").and_then(|p| p.parse::<f64>().ok()),
+        q.get("kind"),
+    ) else {
+        return (StatusCode::BAD_REQUEST, "client_id, token, state, progress, kind required")
+            .into_response();
+    };
+    let body = match kind.as_str() {
+        "movie" => {
+            let Some(tmdb) = q.get("tmdb").and_then(|t| t.parse::<u64>().ok()) else {
+                return (StatusCode::BAD_REQUEST, "tmdb required").into_response();
+            };
+            serde_json::json!({"movie": {"ids": {"tmdb": tmdb}}})
+        }
+        "episode" => {
+            let (Some(tmdb), Some(season), Some(episode)) = (
+                q.get("tmdb").and_then(|t| t.parse::<u64>().ok()),
+                q.get("season").and_then(|v| v.parse::<u32>().ok()),
+                q.get("episode").and_then(|v| v.parse::<u32>().ok()),
+            ) else {
+                return (StatusCode::BAD_REQUEST, "tmdb, season, episode required")
+                    .into_response();
+            };
+            serde_json::json!({
+                "show": {"ids": {"tmdb": tmdb}},
+                "episode": {"season": season, "number": episode},
+            })
+        }
+        _ => return (StatusCode::BAD_REQUEST, "kind must be movie|episode").into_response(),
+    };
+    let ok = crate::trakt::scrobble(client_id, token, state, body, progress).await;
+    Json(serde_json::json!({"ok": ok})).into_response()
+}
+
 async fn plex_users(State(st): State<AppState>) -> Response {
     match st.plex_admin.as_ref().or(st.plex.as_ref()) {
         Some(plex) => Json(plex.home_users().await).into_response(),
@@ -479,7 +574,10 @@ async fn stream(
     AxPath(path): AxPath<String>,
     headers: HeaderMap,
 ) -> Response {
-    let file = match st.fs.open(&path).await {
+    let Some(fs) = &st.fs else {
+        return (StatusCode::NOT_IMPLEMENTED, "no file share configured").into_response();
+    };
+    let file = match fs.open(&path).await {
         Ok(f) => f,
         Err(e) => return (StatusCode::NOT_FOUND, e.to_string()).into_response(),
     };

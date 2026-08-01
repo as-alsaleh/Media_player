@@ -141,6 +141,8 @@ struct Chip: View {
 enum NowPlaying {
     static var nextEpisode: (() -> Void)?
     static var nextLabel: String?
+    /// Trakt identity of the current item (kind, tmdb, season, episode).
+    static var trakt: (kind: String, tmdb: UInt64, season: UInt16?, episode: UInt16?)?
 }
 
 /// Netflix-style home: fixed top nav, cinematic hero, carousels.
@@ -171,6 +173,7 @@ struct BrowseView: View {
     @State private var pinPromptUser: StreamerManager.PlexUser?
     @State private var pinInput = ""
     @State private var searchText = ""
+    @State private var heroIndex = 0
     @AppStorage("plexActiveUserName") private var activeUserName = ""
 
     private func matches(_ title: String) -> Bool {
@@ -383,15 +386,140 @@ struct BrowseView: View {
         }
     }
 
-    private var featured: StreamerManager.LibraryMovie? {
-        movies.filter { $0.backdrop_url != nil && !$0.watched }
-            .max { ($0.year ?? 0) < ($1.year ?? 0) }
-            ?? movies.first { $0.backdrop_url != nil }
+    enum HeroEntry: Identifiable {
+        case movie(StreamerManager.LibraryMovie)
+        case show(StreamerManager.LibraryShow)
+
+        var id: String {
+            switch self {
+            case .movie(let m): return m.uid
+            case .show(let s): return s.uid
+            }
+        }
     }
+
+    /// Alternating mix of recent movies and shows with artwork.
+    private var heroEntries: [HeroEntry] {
+        let heroMovies = movies
+            .filter { $0.backdrop_url != nil && !$0.watched }
+            .sorted { ($0.year ?? 0) > ($1.year ?? 0) }
+            .prefix(4)
+            .map(HeroEntry.movie)
+        let heroShows = shows
+            .filter { $0.backdrop_url != nil }
+            .prefix(3)
+            .map(HeroEntry.show)
+        var mixed: [HeroEntry] = []
+        for i in 0..<max(heroMovies.count, heroShows.count) {
+            if i < heroMovies.count { mixed.append(heroMovies[i]) }
+            if i < heroShows.count { mixed.append(heroShows[i]) }
+        }
+        return mixed
+    }
+
+    private let heroTimer = Timer.publish(every: 7, on: .main, in: .common).autoconnect()
 
     @ViewBuilder
     private var hero: some View {
-        if let movie = featured {
+        let entries = heroEntries
+        if !entries.isEmpty {
+            let entry = entries[heroIndex % entries.count]
+            ZStack(alignment: .bottomTrailing) {
+                heroCard(entry)
+                    .id(entry.id)
+                    .transition(.opacity)
+
+                // Page dots
+                if entries.count > 1 {
+                    HStack(spacing: 6) {
+                        ForEach(0..<entries.count, id: \.self) { i in
+                            Circle()
+                                .fill(.white.opacity(i == heroIndex % entries.count ? 0.95 : 0.35))
+                                .frame(width: 6, height: 6)
+                        }
+                    }
+                    .padding(.trailing, edgePad + 22)
+                    .padding(.bottom, 20)
+                }
+            }
+            .animation(.easeInOut(duration: 0.7), value: heroIndex)
+            .onReceive(heroTimer) { _ in
+                heroIndex = (heroIndex + 1) % max(entries.count, 1)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func heroCard(_ entry: HeroEntry) -> some View {
+        switch entry {
+        case .movie(let movie): movieHero(movie)
+        case .show(let show): showHero(show)
+        }
+    }
+
+    @ViewBuilder
+    private func showHero(_ show: StreamerManager.LibraryShow) -> some View {
+        ZStack(alignment: .bottomLeading) {
+            GeometryReader { geo in
+                FadeInImage(url: show.backdrop_url.flatMap(URL.init))
+                .frame(width: geo.size.width, height: 460)
+                .clipped()
+            }
+            .frame(height: 460)
+
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0.0),
+                    .init(color: .clear, location: 0.45),
+                    .init(color: canvasColor.opacity(0.85), location: 0.85),
+                    .init(color: canvasColor, location: 1.0),
+                ],
+                startPoint: .top, endPoint: .bottom)
+            LinearGradient(
+                colors: [.black.opacity(0.6), .clear],
+                startPoint: .leading, endPoint: .trailing)
+
+            VStack(alignment: .leading, spacing: 14) {
+                Text(show.name)
+                    .font(.system(size: 50, weight: .black, design: .rounded))
+                    .shadow(color: .black.opacity(0.8), radius: 10)
+                HStack(spacing: 8) {
+                    Chip(text: "SERIES")
+                    Chip(text: "\(show.episode_count) episodes")
+                }
+                if let overview = show.overview {
+                    Text(overview)
+                        .font(.system(size: 14.5))
+                        .lineLimit(3)
+                        .frame(maxWidth: 540, alignment: .leading)
+                        .foregroundStyle(.white.opacity(0.9))
+                        .shadow(color: .black.opacity(0.8), radius: 5)
+                }
+                Button {
+                    selectedShow = show
+                } label: {
+                    Label("Episodes", systemImage: "play.fill")
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .padding(.horizontal, 30).padding(.vertical, 12)
+                        .background(.white, in: Capsule())
+                        .foregroundStyle(.black)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
+            }
+            .padding(.horizontal, 34)
+            .padding(.bottom, 26)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 26))
+        .overlay(RoundedRectangle(cornerRadius: 26).stroke(.white.opacity(0.08), lineWidth: 1))
+        .shadow(color: .black.opacity(0.8), radius: 38, y: 16)
+        .padding(.horizontal, edgePad)
+        .padding(.top, 64)
+    }
+
+    @ViewBuilder
+    private func movieHero(_ movie: StreamerManager.LibraryMovie) -> some View {
+        if true {
             ZStack(alignment: .bottomLeading) {
                 GeometryReader { geo in
                     FadeInImage(url: movie.backdrop_url.flatMap(URL.init))
@@ -705,6 +833,7 @@ struct BrowseView: View {
         if let url = streamer.resolveStream(movie.stream_url) {
             NowPlaying.nextEpisode = nil
             NowPlaying.nextLabel = nil
+            NowPlaying.trakt = movie.tmdb_id.map { ("movie", $0, nil, nil) }
             let resume = movie.view_offset_secs ?? WatchProgress.position(for: movie.progress_key)
             onPlay(url, movie.title, movie.progress_key, resume)
         }
@@ -712,6 +841,7 @@ struct BrowseView: View {
 
     private func play(_ ep: StreamerManager.LibraryEpisode) {
         guard let url = streamer.resolveStream(ep.stream_url) else { return }
+        NowPlaying.trakt = ep.show_tmdb_id.map { ("episode", $0, ep.season, ep.episode) }
         setNext(after: ep, in: episodes, streamer: streamer, onPlay: onPlay)
         let resume = ep.view_offset_secs ?? WatchProgress.position(for: ep.progress_key)
         onPlay(url, "\(ep.show) S\(ep.season)E\(ep.episode)", ep.progress_key, resume)
@@ -774,6 +904,7 @@ func setNext(
     NowPlaying.nextLabel = String(format: "S%02dE%02d", next.season, next.episode)
     NowPlaying.nextEpisode = {
         guard let url = streamer.resolveStream(next.stream_url) else { return }
+        NowPlaying.trakt = next.show_tmdb_id.map { ("episode", $0, next.season, next.episode) }
         setNext(after: next, in: episodes, streamer: streamer, onPlay: onPlay)
         let resume = next.view_offset_secs ?? WatchProgress.position(for: next.progress_key)
         onPlay(url, "\(next.show) S\(next.season)E\(next.episode)", next.progress_key, resume)
@@ -1121,6 +1252,7 @@ struct ShowDetailSheet: View {
         Button {
             if let url = streamer.resolveStream(ep.stream_url) {
                 dismiss()
+                NowPlaying.trakt = ep.show_tmdb_id.map { ("episode", $0, ep.season, ep.episode) }
                 setNext(after: ep, in: episodes, streamer: streamer, onPlay: onPlay)
                 let resume = ep.view_offset_secs
                     ?? WatchProgress.position(for: ep.progress_key)
