@@ -1,25 +1,19 @@
 import SwiftUI
 
-/// App-wide configuration: SMB share, Plex server, TMDB key.
-/// Values persist to UserDefaults; `onSaved` restarts the engine.
+/// Minimal settings: sign in with Plex, or see that you're signed in.
 struct SettingsView: View {
     let onSaved: () -> Void
     var streamer: StreamerManager? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
 
-    @State private var server = ""
-    @State private var share = ""
-    @State private var username = ""
-    @State private var password = ""
-    @State private var plexURL = ""
-    @State private var plexToken = ""
-    @State private var tmdbKey = ""
-    @State private var plexLoginState: String?
+    @State private var status: String?
     @State private var polling = false
+    @AppStorage("plexToken") private var plexToken = ""
+    @AppStorage("plexServerName") private var plexServerName = ""
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 22) {
             HStack {
                 Text("Settings")
                     .font(.system(size: 17, weight: .bold, design: .rounded))
@@ -31,130 +25,107 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(14)
 
-            Form {
-                Section("File Share (SMB)") {
-                    TextField("Server (IP or hostname)", text: $server)
-                    TextField("Share name", text: $share)
-                    TextField("Username", text: $username)
-                    SecureField("Password", text: $password)
-                }
-                Section {
-                    if streamer != nil {
-                        Button {
-                            Task { await signInWithPlex() }
-                        } label: {
-                            HStack {
-                                Image(systemName: "person.badge.key.fill")
-                                Text(polling ? "Waiting for plex.tv sign-in…" : "Sign in with Plex")
-                                    .font(.system(size: 13.5, weight: .semibold))
-                                if polling { ProgressView().controlSize(.small) }
-                            }
-                        }
-                        .disabled(polling)
-                        if let state = plexLoginState {
-                            Text(state).font(.caption).foregroundStyle(.secondary)
-                        }
+            Spacer()
+
+            if !plexToken.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 44))
+                        .foregroundStyle(.green)
+                    Text("Signed in to Plex")
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                    if !plexServerName.isEmpty {
+                        Text(plexServerName)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     }
-                    TextField("Server URL", text: $plexURL)
-                    SecureField("Token", text: $plexToken)
-                } header: {
-                    Text("Plex (optional)")
-                } footer: {
-                    Text("Sign in opens plex.tv in your browser and fills these automatically. Leave empty to use the file share only.")
+                    Button("Sign out") { signOut() }
+                        .buttonStyle(.plain)
                         .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 8)
                 }
-                Section {
-                    SecureField("API Key", text: $tmdbKey)
-                } header: {
-                    Text("TMDB (optional)")
-                } footer: {
-                    Text("Free key from themoviedb.org — adds posters and descriptions for file-share items.")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
+            } else {
+                VStack(spacing: 14) {
+                    Button {
+                        Task { await signInWithPlex() }
+                    } label: {
+                        HStack(spacing: 8) {
+                            if polling {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "person.badge.key.fill")
+                            }
+                            Text(polling ? "Waiting for plex.tv…" : "Sign in with Plex")
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
+                        }
+                        .padding(.horizontal, 28).padding(.vertical, 13)
+                        .background(.white, in: Capsule())
+                        .foregroundStyle(.black)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(polling)
 
-                Button {
-                    save()
-                } label: {
-                    Text("Save & Reconnect")
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
+                    if let status {
+                        Text(status)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
                 }
-                .disabled(server.isEmpty || share.isEmpty)
             }
-            .formStyle(.grouped)
+
+            Spacer()
         }
+        .padding(24)
         #if os(macOS)
-        .frame(width: 440, height: 560)
+        .frame(width: 380, height: 340)
         #endif
         .preferredColorScheme(.dark)
-        .onAppear(perform: load)
     }
 
-    /// PIN flow: open plex.tv in the browser, poll until linked, then adopt
-    /// the discovered server URL + token.
     private func signInWithPlex() async {
         guard let streamer else { return }
         polling = true
         defer { polling = false }
-        plexLoginState = nil
+        status = nil
 
         guard let pin = await streamer.plexLoginStart(),
               let url = URL(string: pin.auth_url) else {
-            plexLoginState = "Couldn't reach plex.tv — check your connection."
+            status = "Couldn't reach plex.tv — check your connection."
             return
         }
         openURL(url)
-        plexLoginState = "Complete the sign-in in your browser (code \(pin.code))."
+        status = "Finish signing in in your browser."
 
         for _ in 0..<60 {   // up to ~3 minutes
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             guard let result = await streamer.plexLoginPoll(id: pin.id) else { continue }
             if !result.pending {
                 if let serverURL = result.server_url, let token = result.token {
-                    plexURL = serverURL
-                    plexToken = token
-                    plexLoginState = "Signed in — found \(result.server_name ?? "your server"). Saving…"
-                    save()
+                    let d = UserDefaults.standard
+                    d.set(serverURL, forKey: "plexServerURL")
+                    d.set(token, forKey: "plexToken")
+                    d.set(result.server_name ?? "", forKey: "plexServerName")
+                    d.removeObject(forKey: "plexActiveToken")
+                    d.removeObject(forKey: "plexActiveUserName")
+                    onSaved()
                 } else {
-                    plexLoginState = "Signed in, but no owned server found on the account."
+                    status = "Signed in, but no Plex server found on the account."
                 }
                 return
             }
         }
-        plexLoginState = "Sign-in timed out — try again."
+        status = "Sign-in timed out — try again."
     }
 
-    private func load() {
+    private func signOut() {
         let d = UserDefaults.standard
-        if let config = ShareStore.load() {
-            server = config.server
-            share = config.share
-            username = config.username
+        for key in ["plexServerURL", "plexToken", "plexServerName",
+                    "plexActiveToken", "plexActiveUserName"] {
+            d.removeObject(forKey: key)
         }
-        password = d.string(forKey: "smbPassword")
-            ?? d.string(forKey: "smbPasswordDev") ?? ""
-        plexURL = d.string(forKey: "plexServerURL") ?? ""
-        plexToken = d.string(forKey: "plexToken") ?? ""
-        tmdbKey = d.string(forKey: "tmdbApiKey") ?? ""
-    }
-
-    private func save() {
-        let d = UserDefaults.standard
-        let config = ShareConfig(server: server, share: share, username: username)
-        ShareStore.save(config, password: password)
-        d.set(password, forKey: "smbPassword")
-        d.set(plexURL, forKey: "plexServerURL")
-        d.set(plexToken, forKey: "plexToken")
-        d.set(tmdbKey, forKey: "tmdbApiKey")
-        // A new admin token invalidates any switched-profile token.
-        d.removeObject(forKey: "plexActiveToken")
-        d.removeObject(forKey: "plexActiveUserName")
-        dismiss()
         onSaved()
     }
 }
