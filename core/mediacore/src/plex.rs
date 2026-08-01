@@ -22,6 +22,16 @@ pub struct PlexMovie {
     pub backdrop_url: Option<String>,
     pub stream_url: String,
     pub rating_key: String,
+    /// Server-side resume point, seconds.
+    pub view_offset_secs: Option<f64>,
+    pub watched: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PlexUser {
+    pub uuid: String,
+    pub title: String,
+    pub protected: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -41,6 +51,8 @@ pub struct PlexEpisode {
     pub title: String,
     pub stream_url: String,
     pub rating_key: String,
+    pub view_offset_secs: Option<f64>,
+    pub watched: bool,
 }
 
 #[derive(Deserialize)]
@@ -84,8 +96,22 @@ struct Item {
     index: Option<u16>,
     #[serde(rename = "leafCount")]
     leaf_count: Option<u32>,
+    #[serde(rename = "viewOffset")]
+    view_offset: Option<u64>,
+    #[serde(rename = "viewCount")]
+    view_count: Option<u32>,
     #[serde(rename = "Media", default)]
     media: Vec<Media>,
+}
+
+impl Item {
+    fn offset_secs(&self) -> Option<f64> {
+        self.view_offset.map(|ms| ms as f64 / 1000.0)
+    }
+
+    fn watched(&self) -> bool {
+        self.view_count.unwrap_or(0) > 0
+    }
 }
 
 #[derive(Deserialize)]
@@ -165,6 +191,8 @@ impl PlexSource {
                     backdrop_url: self.image(&item.art),
                     stream_url: stream,
                     rating_key: item.rating_key.clone(),
+                    view_offset_secs: item.offset_secs(),
+                    watched: item.watched(),
                 });
             }
         }
@@ -192,6 +220,92 @@ impl PlexSource {
         out
     }
 
+    /// Report playback progress back to the server so watch state stays in
+    /// sync with other Plex clients. `state` is "playing", "paused", "stopped".
+    pub async fn report_progress(
+        &self,
+        rating_key: &str,
+        time_secs: f64,
+        duration_secs: f64,
+        state: &str,
+    ) -> bool {
+        let path = format!(
+            "/:/timeline?ratingKey={rating_key}&key=%2Flibrary%2Fmetadata%2F{rating_key}\
+             &identifier=com.plexapp.plugins.library&state={state}\
+             &time={}&duration={}",
+            (time_secs * 1000.0) as u64,
+            (duration_secs * 1000.0) as u64,
+        );
+        self.client
+            .get(self.url(&path))
+            .header("X-Plex-Client-Identifier", "dev.mediaplayer.app")
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+    }
+
+    /// List Plex Home users on the account that owns this token.
+    pub async fn home_users(&self) -> Vec<PlexUser> {
+        #[derive(Deserialize)]
+        struct Users {
+            users: Vec<User>,
+        }
+        #[derive(Deserialize)]
+        struct User {
+            uuid: String,
+            title: String,
+            protected: bool,
+        }
+        let Ok(resp) = self
+            .client
+            .get(format!(
+                "https://plex.tv/api/v2/home/users?X-Plex-Token={}",
+                self.token
+            ))
+            .header("Accept", "application/json")
+            .header("X-Plex-Client-Identifier", "dev.mediaplayer.app")
+            .send()
+            .await
+        else {
+            return Vec::new();
+        };
+        resp.json::<Users>()
+            .await
+            .map(|u| {
+                u.users
+                    .into_iter()
+                    .map(|u| PlexUser { uuid: u.uuid, title: u.title, protected: u.protected })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Switch to a Plex Home user; returns the user-scoped auth token.
+    pub async fn switch_user(&self, uuid: &str, pin: Option<&str>) -> Option<String> {
+        #[derive(Deserialize)]
+        struct Switched {
+            #[serde(rename = "authToken")]
+            auth_token: String,
+        }
+        let mut url = format!(
+            "https://plex.tv/api/v2/home/users/{uuid}/switch?X-Plex-Token={}",
+            self.token
+        );
+        if let Some(pin) = pin {
+            url.push_str(&format!("&pin={pin}"));
+        }
+        let resp = self
+            .client
+            .post(url)
+            .header("Accept", "application/json")
+            .header("X-Plex-Client-Identifier", "dev.mediaplayer.app")
+            .send()
+            .await
+            .ok()?;
+        resp.json::<Switched>().await.ok().map(|s| s.auth_token)
+    }
+
     pub async fn episodes(&self) -> Vec<PlexEpisode> {
         let mut out = Vec::new();
         for key in self.sections("show").await {
@@ -211,6 +325,8 @@ impl PlexSource {
                     title: item.title.clone(),
                     stream_url: stream,
                     rating_key: item.rating_key.clone(),
+                    view_offset_secs: item.offset_secs(),
+                    watched: item.watched(),
                 });
             }
         }

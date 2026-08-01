@@ -18,6 +18,14 @@ enum WatchProgress {
         all
     }
 
+    /// Seed a resume point from a server-side source (e.g. Plex viewOffset)
+    /// without the finished/barely-started pruning.
+    static func seed(path: String, position: Double) {
+        var dict = all
+        dict[path] = position
+        all = dict
+    }
+
     static func save(path: String, position: Double, duration: Double) {
         guard duration > 0 else { return }
         var dict = all

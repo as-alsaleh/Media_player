@@ -139,6 +139,14 @@ struct ContentView: View {
     private func saveProgress() {
         guard let path = nowPlayingPath, player.duration > 0 else { return }
         WatchProgress.save(path: path, position: player.timePos, duration: player.duration)
+        // Mirror progress to Plex so its watch history stays in sync.
+        if path.hasPrefix("plex:") {
+            streamer.reportPlexProgress(
+                ratingKey: String(path.dropFirst("plex:".count)),
+                time: player.timePos,
+                duration: player.duration,
+                state: player.isPaused ? "paused" : "playing")
+        }
     }
 
     private func autoConnect() {

@@ -11,6 +11,10 @@ struct BrowseView: View {
     @State private var selectedShow: StreamerManager.LibraryShow?
     @State private var scanning = false
     @State private var showFiles = false
+    @State private var plexUsers: [StreamerManager.PlexUser] = []
+    @State private var pinPromptUser: StreamerManager.PlexUser?
+    @State private var pinInput = ""
+    @AppStorage("plexActiveUserName") private var activeUserName = ""
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -34,7 +38,23 @@ struct BrowseView: View {
 
             toolbar
         }
-        .task(id: streamer.baseURL) { await load() }
+        .task(id: streamer.baseURL) {
+            await load()
+            plexUsers = (try? await streamer.plexUsers()) ?? []
+        }
+        .alert("PIN for \(pinPromptUser?.title ?? "")", isPresented: .init(
+            get: { pinPromptUser != nil },
+            set: { if !$0 { pinPromptUser = nil } })
+        ) {
+            SecureField("PIN", text: $pinInput)
+            Button("Switch") {
+                if let user = pinPromptUser {
+                    Task { await doSwitch(user, pin: pinInput) }
+                }
+                pinInput = ""
+            }
+            Button("Cancel", role: .cancel) { pinInput = "" }
+        }
         .sheet(item: $selectedShow) { show in
             ShowDetailSheet(
                 show: show,
@@ -65,6 +85,26 @@ struct BrowseView: View {
     private var toolbar: some View {
         HStack(spacing: 10) {
             if scanning { ProgressView().controlSize(.small) }
+            if !plexUsers.isEmpty {
+                Menu {
+                    ForEach(plexUsers) { user in
+                        Button {
+                            switchTo(user)
+                        } label: {
+                            if user.title == activeUserName {
+                                Label(user.title, systemImage: "checkmark")
+                            } else {
+                                Text(user.title)
+                            }
+                        }
+                    }
+                } label: {
+                    Label(activeUserName.isEmpty ? "User" : activeUserName,
+                          systemImage: "person.crop.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            }
             Button {
                 Task { await rescan() }
             } label: {
@@ -251,6 +291,31 @@ struct BrowseView: View {
         movies = (try? await streamer.libraryMovies()) ?? []
         shows = (try? await streamer.libraryShows()) ?? []
         episodes = (try? await streamer.libraryEpisodes()) ?? []
+        // Adopt Plex server-side watch history as resume points.
+        for m in movies {
+            if let offset = m.view_offset_secs, offset > 30 {
+                WatchProgress.seed(path: m.progress_key, position: offset)
+            }
+        }
+        for e in episodes {
+            if let offset = e.view_offset_secs, offset > 30 {
+                WatchProgress.seed(path: e.progress_key, position: offset)
+            }
+        }
+    }
+
+    private func switchTo(_ user: StreamerManager.PlexUser) {
+        if user.protected {
+            pinPromptUser = user
+        } else {
+            Task { await doSwitch(user, pin: nil) }
+        }
+    }
+
+    private func doSwitch(_ user: StreamerManager.PlexUser, pin: String?) async {
+        if await streamer.switchPlexUser(uuid: user.uuid, pin: pin) {
+            activeUserName = user.title
+        }
     }
 
     private func rescan() async {

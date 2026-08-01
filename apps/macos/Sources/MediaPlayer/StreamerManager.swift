@@ -45,9 +45,12 @@ final class StreamerManager: ObservableObject {
             env["MEDIACORED_TMDB_KEY"] = tmdbKey
         }
         if let plexURL = UserDefaults.standard.string(forKey: "plexServerURL"), !plexURL.isEmpty,
-           let plexToken = UserDefaults.standard.string(forKey: "plexToken"), !plexToken.isEmpty {
+           let adminToken = UserDefaults.standard.string(forKey: "plexToken"), !adminToken.isEmpty {
             proc.arguments?.append(contentsOf: ["--plex-url", plexURL])
-            env["MEDIACORED_PLEX_TOKEN"] = plexToken
+            // Active token may be a Home user's; admin token drives switching.
+            let active = UserDefaults.standard.string(forKey: "plexActiveToken") ?? adminToken
+            env["MEDIACORED_PLEX_TOKEN"] = active
+            env["MEDIACORED_PLEX_ADMIN_TOKEN"] = adminToken
         }
         proc.environment = env
 
@@ -111,6 +114,8 @@ final class StreamerManager: ObservableObject {
         let stream_url: String
         let progress_key: String
         let source: String
+        let view_offset_secs: Double?
+        let watched: Bool
         var id: String { uid }
     }
 
@@ -133,7 +138,53 @@ final class StreamerManager: ObservableObject {
         let stream_url: String
         let progress_key: String
         let source: String
+        let view_offset_secs: Double?
+        let watched: Bool
         var id: String { uid }
+    }
+
+    struct PlexUser: Codable, Identifiable, Hashable {
+        let uuid: String
+        let title: String
+        let protected: Bool
+        var id: String { uuid }
+    }
+
+    func plexUsers() async throws -> [PlexUser] {
+        try await getJSON("plex/users")
+    }
+
+    /// Switch Plex Home user; stores the user token and restarts the helper.
+    func switchPlexUser(uuid: String, pin: String?) async -> Bool {
+        guard let baseURL else { return false }
+        var comps = URLComponents(url: baseURL.appendingPathComponent("plex/switch"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "uuid", value: uuid)]
+        if let pin, !pin.isEmpty {
+            comps.queryItems?.append(URLQueryItem(name: "pin", value: pin))
+        }
+        guard let (data, resp) = try? await URLSession.shared.data(from: comps.url!),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+              let token = obj["token"]
+        else { return false }
+
+        UserDefaults.standard.set(token, forKey: "plexActiveToken")
+        if let config = ShareStore.load(), let password = ShareStore.password(for: config) {
+            start(config: config, password: password)
+        }
+        return true
+    }
+
+    func reportPlexProgress(ratingKey: String, time: Double, duration: Double, state: String) {
+        guard let baseURL else { return }
+        var comps = URLComponents(url: baseURL.appendingPathComponent("plex/progress"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [
+            URLQueryItem(name: "rating_key", value: ratingKey),
+            URLQueryItem(name: "time", value: String(Int(time))),
+            URLQueryItem(name: "duration", value: String(Int(duration))),
+            URLQueryItem(name: "state", value: state),
+        ]
+        URLSession.shared.dataTask(with: comps.url!).resume()
     }
 
     /// Resolve a (possibly relative) stream URL against the helper's base.

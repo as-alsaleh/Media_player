@@ -26,6 +26,9 @@ pub struct AppState {
     pub index: Option<Arc<Index>>,
     pub tmdb_key: Option<String>,
     pub plex: Option<Arc<crate::plex::PlexSource>>,
+    /// Account-level source for Home-user listing/switching (admin token);
+    /// falls back to `plex` when absent.
+    pub plex_admin: Option<Arc<crate::plex::PlexSource>>,
 }
 
 /// Unified library item shapes served to the UI, regardless of source.
@@ -42,6 +45,9 @@ struct MovieOut {
     /// Stable identity for resume points.
     progress_key: String,
     source: &'static str,
+    /// Server-side resume point (Plex), seconds.
+    view_offset_secs: Option<f64>,
+    watched: bool,
 }
 
 #[derive(serde::Serialize)]
@@ -64,6 +70,8 @@ struct EpisodeOut {
     stream_url: String,
     progress_key: String,
     source: &'static str,
+    view_offset_secs: Option<f64>,
+    watched: bool,
 }
 
 fn local_stream_url(path: &str) -> String {
@@ -93,12 +101,23 @@ pub struct Streamer {
 impl Streamer {
     pub fn new(fs: SmbFs) -> Self {
         Self {
-            state: AppState { fs: Arc::new(fs), index: None, tmdb_key: None, plex: None },
+            state: AppState {
+                fs: Arc::new(fs),
+                index: None,
+                tmdb_key: None,
+                plex: None,
+                plex_admin: None,
+            },
         }
     }
 
     pub fn with_plex(mut self, plex: Option<crate::plex::PlexSource>) -> Self {
         self.state.plex = plex.map(Arc::new);
+        self
+    }
+
+    pub fn with_plex_admin(mut self, plex: Option<crate::plex::PlexSource>) -> Self {
+        self.state.plex_admin = plex.map(Arc::new);
         self
     }
 
@@ -122,6 +141,9 @@ impl Streamer {
             .route("/library/movies", get(library_movies))
             .route("/library/episodes", get(library_episodes))
             .route("/library/shows", get(library_shows))
+            .route("/plex/progress", get(plex_progress))
+            .route("/plex/users", get(plex_users))
+            .route("/plex/switch", get(plex_switch))
             .with_state(self.state);
         let listener =
             tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port))).await?;
@@ -181,6 +203,8 @@ async fn library_movies(State(st): State<AppState>) -> Response {
             stream_url: local_stream_url(&m.path),
             progress_key: m.path,
             source: "local",
+            view_offset_secs: None,
+            watched: false,
         }));
     }
     if let Some(plex) = &st.plex {
@@ -194,6 +218,8 @@ async fn library_movies(State(st): State<AppState>) -> Response {
             stream_url: m.stream_url,
             progress_key: format!("plex:{}", m.rating_key),
             source: "plex",
+            view_offset_secs: m.view_offset_secs,
+            watched: m.watched,
         }));
     }
     out.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
@@ -212,6 +238,8 @@ async fn library_episodes(State(st): State<AppState>) -> Response {
             stream_url: local_stream_url(&e.path),
             progress_key: e.path,
             source: "local",
+            view_offset_secs: None,
+            watched: false,
         }));
     }
     if let Some(plex) = &st.plex {
@@ -223,6 +251,8 @@ async fn library_episodes(State(st): State<AppState>) -> Response {
             stream_url: e.stream_url,
             progress_key: format!("plex:{}", e.rating_key),
             source: "plex",
+            view_offset_secs: e.view_offset_secs,
+            watched: e.watched,
         }));
     }
     out.sort_by(|a, b| {
@@ -260,6 +290,48 @@ async fn library_shows(State(st): State<AppState>) -> Response {
     out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     out.dedup_by(|a, b| a.name.to_lowercase() == b.name.to_lowercase());
     Json(out).into_response()
+}
+
+async fn plex_progress(
+    State(st): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let Some(plex) = &st.plex else {
+        return (StatusCode::NOT_IMPLEMENTED, "no plex source").into_response();
+    };
+    let (Some(key), Some(time), Some(duration)) = (
+        q.get("rating_key"),
+        q.get("time").and_then(|t| t.parse::<f64>().ok()),
+        q.get("duration").and_then(|d| d.parse::<f64>().ok()),
+    ) else {
+        return (StatusCode::BAD_REQUEST, "rating_key, time, duration required").into_response();
+    };
+    let state = q.get("state").map(String::as_str).unwrap_or("playing");
+    let ok = plex.report_progress(key, time, duration, state).await;
+    Json(serde_json::json!({"ok": ok})).into_response()
+}
+
+async fn plex_users(State(st): State<AppState>) -> Response {
+    match st.plex_admin.as_ref().or(st.plex.as_ref()) {
+        Some(plex) => Json(plex.home_users().await).into_response(),
+        None => (StatusCode::NOT_IMPLEMENTED, "no plex source").into_response(),
+    }
+}
+
+async fn plex_switch(
+    State(st): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let Some(plex) = st.plex_admin.as_ref().or(st.plex.as_ref()) else {
+        return (StatusCode::NOT_IMPLEMENTED, "no plex source").into_response();
+    };
+    let Some(uuid) = q.get("uuid") else {
+        return (StatusCode::BAD_REQUEST, "uuid required").into_response();
+    };
+    match plex.switch_user(uuid, q.get("pin").map(String::as_str)).await {
+        Some(token) => Json(serde_json::json!({"token": token})).into_response(),
+        None => (StatusCode::BAD_GATEWAY, "switch failed").into_response(),
+    }
 }
 
 async fn stream(

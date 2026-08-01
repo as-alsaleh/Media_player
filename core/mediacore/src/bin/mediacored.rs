@@ -48,6 +48,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let (Some(url), Ok(token)) = (&args.plex_url, std::env::var("MEDIACORED_PLEX_TOKEN")) {
         streamer = streamer
             .with_plex(Some(mediacore::plex::PlexSource::new(url.clone(), token)));
+        if let Ok(admin) = std::env::var("MEDIACORED_PLEX_ADMIN_TOKEN") {
+            streamer = streamer
+                .with_plex_admin(Some(mediacore::plex::PlexSource::new(url.clone(), admin)));
+        }
     }
     let addr = streamer.serve(args.port).await?;
     // Machine-readable ready line — the app parses this to find the port.
