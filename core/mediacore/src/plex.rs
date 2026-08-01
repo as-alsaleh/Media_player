@@ -377,7 +377,11 @@ impl PlexSource {
             .unwrap_or_default()
     }
 
-    /// Switch to a Plex Home user; returns the user-scoped auth token.
+    /// Switch to a Plex Home user; returns that user's *server access token*.
+    ///
+    /// The plex.tv switch endpoint returns an account-level token which the
+    /// media server resolves to the owner. The per-user server token comes
+    /// from the resources API afterwards — official clients do the same.
     pub async fn switch_user(&self, uuid: &str, pin: Option<&str>) -> Option<String> {
         #[derive(Deserialize)]
         struct Switched {
@@ -399,7 +403,60 @@ impl PlexSource {
             .send()
             .await
             .ok()?;
-        resp.json::<Switched>().await.ok().map(|s| s.auth_token)
+        let account_token = resp.json::<Switched>().await.ok()?.auth_token;
+
+        // Exchange for the per-user access token of *this* server.
+        self.server_access_token(&account_token)
+            .await
+            .or(Some(account_token))
+    }
+
+    /// Our server's machineIdentifier.
+    async fn machine_id(&self) -> Option<String> {
+        #[derive(Deserialize)]
+        struct Identity {
+            #[serde(rename = "machineIdentifier")]
+            machine_identifier: String,
+        }
+        let resp = self
+            .client
+            .get(self.url("/identity"))
+            .header("Accept", "application/json")
+            .send()
+            .await
+            .ok()?;
+        resp.json::<Envelope<Identity>>()
+            .await
+            .ok()
+            .map(|e| e.container.machine_identifier)
+    }
+
+    /// Look up the given account token's access token for this server.
+    async fn server_access_token(&self, account_token: &str) -> Option<String> {
+        #[derive(Deserialize)]
+        struct Resource {
+            #[serde(rename = "clientIdentifier")]
+            client_identifier: String,
+            #[serde(rename = "accessToken")]
+            access_token: Option<String>,
+            provides: String,
+        }
+        let machine = self.machine_id().await?;
+        let resp = self
+            .client
+            .get(format!(
+                "https://plex.tv/api/v2/resources?X-Plex-Token={account_token}"
+            ))
+            .header("Accept", "application/json")
+            .header("X-Plex-Client-Identifier", "dev.mediaplayer.app")
+            .send()
+            .await
+            .ok()?;
+        let resources = resp.json::<Vec<Resource>>().await.ok()?;
+        resources
+            .into_iter()
+            .find(|r| r.provides.contains("server") && r.client_identifier == machine)
+            .and_then(|r| r.access_token)
     }
 
     pub async fn episodes(&self) -> Vec<PlexEpisode> {
