@@ -25,7 +25,7 @@ struct ContentView: View {
             }
             .frame(minWidth: 640, minHeight: 360)
             .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
-                providers.first?.loadObject(ofClass: URL.self) { url, _ in
+                _ = providers.first?.loadObject(ofClass: URL.self) { url, _ in
                     if let url { DispatchQueue.main.async { player.load(url: url) } }
                 }
                 return true

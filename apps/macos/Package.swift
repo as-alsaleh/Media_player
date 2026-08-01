@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "MediaPlayer",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v14)],
     dependencies: [
         // GPL build: includes all decoders/filters we need (dav1d, libass, etc.)
         .package(url: "https://github.com/mpvkit/MPVKit.git", from: "0.39.0"),
