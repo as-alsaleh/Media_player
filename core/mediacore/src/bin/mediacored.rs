@@ -68,10 +68,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     if let (Some(url), Ok(key)) = (&args.jellyfin_url, std::env::var("MEDIACORED_JELLYFIN_KEY")) {
-        streamer = streamer.with_jellyfin(Some(mediacore::jellyfin::JellyfinSource::new(
-            url.clone(),
-            key,
-        )));
+        streamer = streamer.with_jellyfin(Some(
+            mediacore::jellyfin::JellyfinSource::new(url.clone(), key).with_user(
+                std::env::var("MEDIACORED_JELLYFIN_USER_TOKEN").ok(),
+                std::env::var("MEDIACORED_JELLYFIN_USER_ID").ok(),
+            ),
+        ));
     }
     let addr = streamer.serve(args.port).await?;
     // Machine-readable ready line — the app parses this to find the port.

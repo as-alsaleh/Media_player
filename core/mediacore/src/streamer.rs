@@ -187,6 +187,10 @@ impl Streamer {
             .route("/plex/watched", get(plex_watched))
             .route("/plex/login/start", get(plex_login_start))
             .route("/plex/login/poll", get(plex_login_poll))
+            .route("/jellyfin/users", get(jellyfin_users))
+            .route("/jellyfin/login", get(jellyfin_login))
+            .route("/jellyfin/progress", get(jellyfin_progress))
+            .route("/jellyfin/watched", get(jellyfin_watched))
             .route("/trakt/login/start", get(trakt_login_start))
             .route("/trakt/login/poll", get(trakt_login_poll))
             .route("/trakt/scrobble", get(trakt_scrobble))
@@ -252,11 +256,16 @@ async fn library_scan(
     }
 }
 
-/// The local SMB index is only a fallback for setups without Plex: both point
-/// at the same files, and filename-parsed titles never dedup cleanly against
-/// Plex's canonical ones (year suffixes, punctuation, abbreviations).
+/// The local SMB index is only a fallback for setups without a media server:
+/// they index the same files, and filename-parsed titles never dedup cleanly
+/// against canonical ones (year suffixes, punctuation, abbreviations).
 fn use_local_index(st: &AppState) -> bool {
-    st.plex.is_none() && !st.restricted && st.fs.is_some()
+    st.plex.is_none() && !jf_user(st) && !st.restricted && st.fs.is_some()
+}
+
+/// Jellyfin acts as a library source only when a user is signed in.
+fn jf_user(st: &AppState) -> bool {
+    st.jellyfin.as_ref().is_some_and(|j| j.has_user())
 }
 
 async fn library_movies(State(st): State<AppState>) -> Response {
@@ -303,6 +312,32 @@ async fn library_movies(State(st): State<AppState>) -> Response {
                     stream_url: m.stream_url,
                     progress_key: format!("plex:{}", m.rating_key),
                     source: "plex",
+                    view_offset_secs: m.view_offset_secs,
+                    watched: m.watched,
+                    last_viewed_at: m.last_viewed_at,
+                    duration_secs: m.duration_secs,
+                    tmdb_id: m.tmdb_id,
+                    added_at: m.added_at,
+                },
+            );
+        }
+    }
+    if let Some(jf) = st.jellyfin.as_ref().filter(|j| j.has_user()) {
+        // Signing in with Jellyfin is an explicit choice — it wins collisions.
+        for m in jf.movies().await {
+            let key = format!("{}|{}", norm(&m.title), m.year.unwrap_or(0));
+            map.insert(
+                key,
+                MovieOut {
+                    uid: format!("jf-m{}", m.id),
+                    progress_key: format!("jf:{}", m.id),
+                    title: m.title,
+                    year: m.year,
+                    poster_url: m.poster_url,
+                    backdrop_url: m.backdrop_url,
+                    overview: m.overview,
+                    stream_url: m.stream_url,
+                    source: "jellyfin",
                     view_offset_secs: m.view_offset_secs,
                     watched: m.watched,
                     last_viewed_at: m.last_viewed_at,
@@ -376,6 +411,37 @@ async fn library_episodes(State(st): State<AppState>) -> Response {
             );
         }
     }
+    if let Some(jf) = st.jellyfin.as_ref().filter(|j| j.has_user()) {
+        let show_ids: HashMap<String, Option<u64>> = jf
+            .shows()
+            .await
+            .into_iter()
+            .map(|s| (norm(&s.name), s.tmdb_id))
+            .collect();
+        for e in jf.episodes().await {
+            let key = format!("{}|{}|{}", norm(&e.show), e.season, e.episode);
+            map.insert(
+                key,
+                EpisodeOut {
+                    uid: format!("jf-e{}", e.id),
+                    progress_key: format!("jf:{}", e.id),
+                    show_tmdb_id: show_ids.get(&norm(&e.show)).copied().flatten(),
+                    show: e.show,
+                    season: e.season,
+                    episode: e.episode,
+                    title: Some(e.title),
+                    thumb_url: e.thumb_url,
+                    overview: e.overview,
+                    stream_url: e.stream_url,
+                    source: "jellyfin",
+                    view_offset_secs: e.view_offset_secs,
+                    watched: e.watched,
+                    last_viewed_at: e.last_viewed_at,
+                    duration_secs: e.duration_secs,
+                },
+            );
+        }
+    }
     let mut out: Vec<EpisodeOut> = map.into_values().collect();
     out.sort_by(|a, b| {
         (a.show.to_lowercase(), a.season, a.episode)
@@ -420,6 +486,23 @@ async fn library_shows(State(st): State<AppState>) -> Response {
             );
         }
     }
+    if let Some(jf) = st.jellyfin.as_ref().filter(|j| j.has_user()) {
+        for s in jf.shows().await {
+            map.insert(
+                norm(&s.name),
+                ShowOut {
+                    uid: format!("jf-s{}", s.id),
+                    name: s.name,
+                    episode_count: s.episode_count,
+                    poster_url: s.poster_url,
+                    backdrop_url: s.backdrop_url,
+                    overview: s.overview,
+                    source: "jellyfin",
+                    added_at: s.added_at,
+                },
+            );
+        }
+    }
     let mut out: Vec<ShowOut> = map.into_values().collect();
     out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     Json(out).into_response()
@@ -455,13 +538,20 @@ async fn plex_markers(
 }
 
 /// Seek-preview sources for an item, best first: Jellyfin trickplay tiles
-/// (matched by file path), else a Plex BIF frame-URL template.
+/// (by item id for Jellyfin items, matched by file path for Plex items),
+/// else a Plex BIF frame-URL template.
 async fn plex_preview(
     State(st): State<AppState>,
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
+    // Jellyfin item: direct trickplay lookup.
+    if let (Some(jf), Some(item)) = (&st.jellyfin, q.get("item_id")) {
+        let trickplay = jf.trickplay_for_item(item).await;
+        return Json(serde_json::json!({"trickplay": trickplay, "template": null}))
+            .into_response();
+    }
     let (Some(plex), Some(key)) = (&st.plex, q.get("rating_key")) else {
-        return (StatusCode::BAD_REQUEST, "plex + rating_key required").into_response();
+        return (StatusCode::BAD_REQUEST, "rating_key or item_id required").into_response();
     };
     let mut trickplay = None;
     if let Some(jf) = &st.jellyfin {
@@ -475,6 +565,48 @@ async fn plex_preview(
         None
     };
     Json(serde_json::json!({"trickplay": trickplay, "template": template})).into_response()
+}
+
+async fn jellyfin_users(Query(q): Query<HashMap<String, String>>) -> Response {
+    let Some(base) = q.get("base") else {
+        return (StatusCode::BAD_REQUEST, "base required").into_response();
+    };
+    Json(crate::jellyfin::JellyfinSource::public_users(base).await).into_response()
+}
+
+async fn jellyfin_login(Query(q): Query<HashMap<String, String>>) -> Response {
+    let (Some(base), Some(user)) = (q.get("base"), q.get("username")) else {
+        return (StatusCode::BAD_REQUEST, "base + username required").into_response();
+    };
+    let password = q.get("password").map(String::as_str).unwrap_or("");
+    match crate::jellyfin::JellyfinSource::login(base, user, password).await {
+        Some(login) => Json(login).into_response(),
+        None => (StatusCode::UNAUTHORIZED, "login failed").into_response(),
+    }
+}
+
+async fn jellyfin_progress(
+    State(st): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (Some(jf), Some(item)) = (&st.jellyfin, q.get("item_id")) else {
+        return (StatusCode::BAD_REQUEST, "jellyfin + item_id required").into_response();
+    };
+    let secs: f64 = q.get("time").and_then(|t| t.parse().ok()).unwrap_or(0.0);
+    let state = q.get("state").map(String::as_str).unwrap_or("playing");
+    Json(serde_json::json!({"ok": jf.report_progress(item, secs, state).await}))
+        .into_response()
+}
+
+async fn jellyfin_watched(
+    State(st): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (Some(jf), Some(item)) = (&st.jellyfin, q.get("item_id")) else {
+        return (StatusCode::BAD_REQUEST, "jellyfin + item_id required").into_response();
+    };
+    let watched = q.get("watched").map(String::as_str) == Some("true");
+    Json(serde_json::json!({"ok": jf.set_watched(item, watched).await})).into_response()
 }
 
 async fn plex_subtitles(

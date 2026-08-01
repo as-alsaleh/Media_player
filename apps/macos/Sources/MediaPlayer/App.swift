@@ -76,12 +76,13 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
     }
 
-    /// First run: nothing configured yet — show the Plex sign-in.
+    /// First run: nothing configured yet — show the sign-in choices.
     private var needsOnboarding: Bool {
         _ = refreshTick  // re-evaluate after login
         let d = UserDefaults.standard
         let hasPlex = !(d.string(forKey: "plexToken") ?? "").isEmpty
-        return !hasPlex && ShareStore.load() == nil
+        let hasJellyfin = !(d.string(forKey: "jellyfinUserToken") ?? "").isEmpty
+        return !hasPlex && !hasJellyfin && ShareStore.load() == nil
     }
 
     /// Marker (intro/credits/commercial) covering the current position.
@@ -451,8 +452,11 @@ struct ContentView: View {
         if path.hasPrefix("plex:") {
             let key = String(path.dropFirst("plex:".count))
             Task { markers = await streamer.plexMarkers(ratingKey: key) }
-            Task { previewInfo = await streamer.plexSeekPreview(ratingKey: key) }
+            Task { previewInfo = await streamer.seekPreview(ratingKey: key) }
             Task { await loadExternalSubtitles(ratingKey: key) }
+        } else if path.hasPrefix("jf:") {
+            let item = String(path.dropFirst("jf:".count))
+            Task { previewInfo = await streamer.seekPreview(jellyfinItemId: item) }
         }
 
         player.onFileEnded = {
@@ -489,12 +493,17 @@ struct ContentView: View {
     private func saveProgress() {
         guard let path = nowPlayingPath, player.duration > 0 else { return }
         WatchProgress.save(path: path, position: player.timePos, duration: player.duration)
-        // Mirror progress to Plex so its watch history stays in sync.
+        // Mirror progress to the source server so watch history stays in sync.
         if path.hasPrefix("plex:") {
             streamer.reportPlexProgress(
                 ratingKey: String(path.dropFirst("plex:".count)),
                 time: player.timePos,
                 duration: player.duration,
+                state: player.isPaused ? "paused" : "playing")
+        } else if path.hasPrefix("jf:") {
+            streamer.reportJellyfinProgress(
+                itemId: String(path.dropFirst("jf:".count)),
+                time: player.timePos,
                 state: player.isPaused ? "paused" : "playing")
         }
     }

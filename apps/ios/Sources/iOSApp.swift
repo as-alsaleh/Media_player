@@ -68,7 +68,8 @@ struct RootView: View {
         _ = refreshTick
         let d = UserDefaults.standard
         let hasPlex = !(d.string(forKey: "plexServerURL") ?? (ProcessInfo.processInfo.environment["MEDIAPLAYER_PLEX_URL"] ?? "")).isEmpty
-        return !hasPlex && server.isEmpty
+        let hasJellyfin = !(d.string(forKey: "jellyfinUserToken") ?? "").isEmpty
+        return !hasPlex && !hasJellyfin && server.isEmpty
     }
 
     private func startCore() {
@@ -96,7 +97,9 @@ struct RootView: View {
                     server: server, share: share, username: username,
                     password: password, dbPath: db.path, tmdbApiKey: tmdb,
                     plexUrl: plexURL, plexToken: activeToken, plexAdminToken: adminToken,
-                    jellyfinUrl: jellyfinURL, jellyfinApiKey: jellyfinKey)
+                    jellyfinUrl: jellyfinURL, jellyfinApiKey: jellyfinKey,
+                    jellyfinUserToken: defaults.string(forKey: "jellyfinUserToken"),
+                    jellyfinUserId: defaults.string(forKey: "jellyfinUserId"))
                 await MainActor.run {
                     streamer.adopt(baseURL: URL(string: url))
                     connecting = false
@@ -164,6 +167,11 @@ struct RootView: View {
                 ratingKey: String(path.dropFirst("plex:".count)),
                 time: player.timePos,
                 duration: player.duration,
+                state: player.isPaused ? "paused" : "playing")
+        } else if path.hasPrefix("jf:") {
+            streamer.reportJellyfinProgress(
+                itemId: String(path.dropFirst("jf:".count)),
+                time: player.timePos,
                 state: player.isPaused ? "paused" : "playing")
         }
     }

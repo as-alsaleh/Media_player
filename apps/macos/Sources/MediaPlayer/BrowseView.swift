@@ -232,6 +232,19 @@ struct BrowseView: View {
     @State private var searchText = ""
     @State private var heroIndex = 0
     @AppStorage("plexActiveUserName") private var activeUserName = ""
+    @State private var jellyfinUsers: [StreamerManager.JellyfinUser] = []
+    @State private var jfPasswordUser: StreamerManager.JellyfinUser?
+    @State private var jfPasswordInput = ""
+    @AppStorage("jellyfinUserName") private var jellyfinActiveName = ""
+    @AppStorage("jellyfinURL") private var jellyfinBase = ""
+    @AppStorage("jellyfinUserToken") private var jellyfinToken = ""
+
+    /// Label for the user menu: the active Jellyfin user wins (Jellyfin is
+    /// the primary source while signed in), else the Plex Home user.
+    private var currentUserLabel: String {
+        if !jellyfinToken.isEmpty, !jellyfinActiveName.isEmpty { return jellyfinActiveName }
+        return activeUserName.isEmpty ? "User" : activeUserName
+    }
 
     private func matches(_ title: String) -> Bool {
         searchText.isEmpty || title.localizedCaseInsensitiveContains(searchText)
@@ -260,6 +273,9 @@ struct BrowseView: View {
         .task(id: "\(streamer.baseURL?.absoluteString ?? "")|\(refreshTick)") {
             await load()
             plexUsers = (try? await streamer.plexUsers()) ?? []
+            if !jellyfinBase.isEmpty, !jellyfinToken.isEmpty {
+                jellyfinUsers = await streamer.jellyfinUsers(base: jellyfinBase)
+            }
         }
         .sheet(item: $selectedShow) { show in
             ShowDetailSheet(
@@ -305,6 +321,20 @@ struct BrowseView: View {
             }
             Button("Cancel", role: .cancel) { pinInput = "" }
         }
+        .alert("Password for \(jfPasswordUser?.name ?? "")", isPresented: .init(
+            get: { jfPasswordUser != nil },
+            set: { if !$0 { jfPasswordUser = nil } })
+        ) {
+            SecureField("Password", text: $jfPasswordInput)
+            Button("Switch") {
+                if let user = jfPasswordUser {
+                    let pw = jfPasswordInput
+                    Task { await doJellyfinSwitch(user, password: pw) }
+                }
+                jfPasswordInput = ""
+            }
+            Button("Cancel", role: .cancel) { jfPasswordInput = "" }
+        }
         .preferredColorScheme(.dark)
     }
 
@@ -339,23 +369,43 @@ struct BrowseView: View {
             Spacer()
 
             if scanning { ProgressView().controlSize(.small) }
-            if !plexUsers.isEmpty {
+            if !plexUsers.isEmpty || !jellyfinUsers.isEmpty {
                 Menu {
-                    ForEach(plexUsers) { user in
-                        Button {
-                            switchTo(user)
-                        } label: {
-                            if user.title == activeUserName {
-                                Label(user.title, systemImage: "checkmark")
-                            } else {
-                                Text(user.title)
+                    if !plexUsers.isEmpty {
+                        Section("Plex") {
+                            ForEach(plexUsers) { user in
+                                Button {
+                                    switchTo(user)
+                                } label: {
+                                    if user.title == activeUserName {
+                                        Label(user.title, systemImage: "checkmark")
+                                    } else {
+                                        Text(user.title)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if !jellyfinUsers.isEmpty {
+                        Section("Jellyfin") {
+                            ForEach(jellyfinUsers) { user in
+                                Button {
+                                    switchToJellyfin(user)
+                                } label: {
+                                    if user.name == jellyfinActiveName {
+                                        Label(user.name, systemImage: "checkmark")
+                                    } else if user.has_password {
+                                        Label(user.name, systemImage: "lock")
+                                    } else {
+                                        Text(user.name)
+                                    }
+                                }
                             }
                         }
                     }
                 } label: {
                     #if os(macOS)
-                    Label(activeUserName.isEmpty ? "User" : activeUserName,
-                          systemImage: "person.crop.circle.fill")
+                    Label(currentUserLabel, systemImage: "person.crop.circle.fill")
                     #else
                     Image(systemName: "person.crop.circle.fill")
                     #endif
@@ -712,7 +762,7 @@ struct BrowseView: View {
                     HStack(spacing: 8) {
                         if let year = movie.year { Chip(text: String(year)) }
                         if let dur = movie.duration_secs { Chip(text: "\(Int(dur) / 60) min") }
-                        Chip(text: movie.source == "plex" ? "PLEX" : "SMB")
+                        Chip(text: movie.source == "local" ? "SMB" : movie.source.uppercased())
                         if movie.view_offset_secs != nil { Chip(text: "Resume") }
                     }
                     if let overview = movie.overview {
@@ -1057,6 +1107,24 @@ struct BrowseView: View {
         if await streamer.switchPlexUser(uuid: user.uuid, pin: pin) {
             activeUserName = user.title
         }
+    }
+
+    private func switchToJellyfin(_ user: StreamerManager.JellyfinUser) {
+        if user.has_password {
+            jfPasswordUser = user
+        } else {
+            Task { await doJellyfinSwitch(user, password: "") }
+        }
+    }
+
+    private func doJellyfinSwitch(_ user: StreamerManager.JellyfinUser, password: String) async {
+        guard let login = await streamer.jellyfinLogin(
+            base: jellyfinBase, username: user.name, password: password) else { return }
+        let d = UserDefaults.standard
+        d.set(login.token, forKey: "jellyfinUserToken")
+        d.set(login.user_id, forKey: "jellyfinUserId")
+        d.set(login.name, forKey: "jellyfinUserName")
+        onReconnect()   // restart the engine with the new user token
     }
 
     private func load() async {

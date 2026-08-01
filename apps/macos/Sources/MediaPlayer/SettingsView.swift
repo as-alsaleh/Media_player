@@ -55,9 +55,12 @@ struct SettingsView: View {
     @State private var smbPassword = ""
     @State private var cacheCleared = false
 
-    // Jellyfin (trickplay/seek-preview provider)
+    // Jellyfin (trickplay/seek-preview provider + full source when signed in)
     @AppStorage("jellyfinURL") private var jellyfinURL = ""
     @AppStorage("jellyfinApiKey") private var jellyfinApiKey = ""
+    @AppStorage("jellyfinUserToken") private var jellyfinUserToken = ""
+    @AppStorage("jellyfinUserName") private var jellyfinUserName = ""
+    @State private var showJellyfinAuth = false
 
     /// Track-selection languages (mpv alang/slang code lists).
     private static let trackLanguages: [(String, String)] = [
@@ -164,6 +167,40 @@ struct SettingsView: View {
             }
         }
 
+        card("Jellyfin Account") {
+            if !jellyfinUserToken.isEmpty {
+                row("checkmark.seal.fill", "Jellyfin",
+                    caption: "Signed in as \(jellyfinUserName)") {
+                    Button("Sign out") {
+                        let d = UserDefaults.standard
+                        for key in ["jellyfinUserToken", "jellyfinUserId", "jellyfinUserName"] {
+                            d.removeObject(forKey: key)
+                        }
+                        dismiss(); onSaved()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.55))
+                }
+            } else {
+                Button { showJellyfinAuth = true } label: {
+                    row("person.badge.key", "Sign in with Jellyfin",
+                        caption: "Library, users and watch state from Jellyfin") {
+                        chevron
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .sheet(isPresented: $showJellyfinAuth) {
+            if let streamer {
+                JellyfinAuthView(streamer: streamer) {
+                    dismiss()
+                    onSaved()
+                }
+            }
+        }
+
         card("Library") {
             Button {
                 Task { _ = try? await streamer?.scanLibrary() }
@@ -171,7 +208,7 @@ struct SettingsView: View {
                 onSaved()
             } label: {
                 row("arrow.clockwise", "Refresh Library",
-                    caption: "Re-pull everything from Plex and rescan files") {
+                    caption: "Re-pull everything and rescan files") {
                     chevron
                 }
             }

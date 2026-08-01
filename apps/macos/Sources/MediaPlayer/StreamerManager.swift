@@ -83,6 +83,11 @@ final class StreamerManager: ObservableObject {
            let jfKey = UserDefaults.standard.string(forKey: "jellyfinApiKey"), !jfKey.isEmpty {
             proc.arguments?.append(contentsOf: ["--jellyfin-url", jfURL])
             env["MEDIACORED_JELLYFIN_KEY"] = jfKey
+            if let token = UserDefaults.standard.string(forKey: "jellyfinUserToken"), !token.isEmpty,
+               let userId = UserDefaults.standard.string(forKey: "jellyfinUserId"), !userId.isEmpty {
+                env["MEDIACORED_JELLYFIN_USER_TOKEN"] = token
+                env["MEDIACORED_JELLYFIN_USER_ID"] = userId
+            }
         }
         proc.environment = env
 
@@ -283,6 +288,56 @@ final class StreamerManager: ObservableObject {
         return try? JSONDecoder().decode(PlexLoginResult.self, from: data)
     }
 
+    struct JellyfinUser: Codable, Identifiable, Hashable {
+        let id: String
+        let name: String
+        let has_password: Bool
+    }
+
+    struct JellyfinLogin: Codable {
+        let token: String
+        let user_id: String
+        let name: String
+    }
+
+    /// Users on a Jellyfin server's login screen.
+    func jellyfinUsers(base: String) async -> [JellyfinUser] {
+        guard let baseURL else { return [] }
+        var comps = URLComponents(url: baseURL.appendingPathComponent("jellyfin/users"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "base", value: base)]
+        guard let (data, _) = try? await URLSession.shared.data(from: comps.url!) else { return [] }
+        return (try? JSONDecoder().decode([JellyfinUser].self, from: data)) ?? []
+    }
+
+    func jellyfinLogin(base: String, username: String, password: String) async -> JellyfinLogin? {
+        guard let baseURL else { return nil }
+        var comps = URLComponents(url: baseURL.appendingPathComponent("jellyfin/login"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [
+            URLQueryItem(name: "base", value: base),
+            URLQueryItem(name: "username", value: username),
+            URLQueryItem(name: "password", value: password),
+        ]
+        guard let (data, resp) = try? await URLSession.shared.data(from: comps.url!),
+              (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        return try? JSONDecoder().decode(JellyfinLogin.self, from: data)
+    }
+
+    /// Fire-and-forget playback state to Jellyfin ("playing"|"paused"|"stopped").
+    func reportJellyfinProgress(itemId: String, time: Double, state: String) {
+        fireAndForget("jellyfin/progress", [
+            URLQueryItem(name: "item_id", value: itemId),
+            URLQueryItem(name: "time", value: String(time)),
+            URLQueryItem(name: "state", value: state),
+        ])
+    }
+
+    func jellyfinSetWatched(itemId: String, watched: Bool) {
+        fireAndForget("jellyfin/watched", [
+            URLQueryItem(name: "item_id", value: itemId),
+            URLQueryItem(name: "watched", value: watched ? "true" : "false"),
+        ])
+    }
+
     /// Jellyfin trickplay tile manifest for the seek-preview bubble.
     struct TrickplayInfo: Codable, Equatable {
         let tile_url_template: String   // contains "{i}"
@@ -301,10 +356,15 @@ final class StreamerManager: ObservableObject {
     }
 
     /// Seek-preview sources for an item (Jellyfin trickplay, else Plex BIF).
-    func plexSeekPreview(ratingKey: String) async -> SeekPreviewInfo? {
+    /// Pass a Plex rating key or a Jellyfin item id.
+    func seekPreview(ratingKey: String? = nil, jellyfinItemId: String? = nil) async -> SeekPreviewInfo? {
         guard let baseURL else { return nil }
         var comps = URLComponents(url: baseURL.appendingPathComponent("plex/preview"), resolvingAgainstBaseURL: false)!
-        comps.queryItems = [URLQueryItem(name: "rating_key", value: ratingKey)]
+        if let jellyfinItemId {
+            comps.queryItems = [URLQueryItem(name: "item_id", value: jellyfinItemId)]
+        } else {
+            comps.queryItems = [URLQueryItem(name: "rating_key", value: ratingKey)]
+        }
         guard let (data, _) = try? await URLSession.shared.data(from: comps.url!) else { return nil }
         return try? JSONDecoder().decode(SeekPreviewInfo.self, from: data)
     }
