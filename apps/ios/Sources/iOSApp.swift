@@ -204,14 +204,27 @@ struct PlayerScreen: View {
     }
 
     private var controls: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 16) {
+            Button(action: { player.seek(to: max(player.timePos - 15, 0)) }) {
+                Image(systemName: "gobackward.15")
+            }
+            .tint(.white)
             Button(action: { player.togglePause() }) {
                 Image(systemName: player.isPaused ? "play.fill" : "pause.fill")
             }
             .tint(.white)
+            Button(action: { player.seek(to: player.timePos + 30) }) {
+                Image(systemName: "goforward.30")
+            }
+            .tint(.white)
+            #if !os(tvOS)
             Slider(
                 value: Binding(get: { player.timePos }, set: { player.seek(to: $0) }),
                 in: 0...max(player.duration, 1))
+            #else
+            ProgressView(value: min(player.timePos, player.duration), total: max(player.duration, 1))
+                .tint(.white)
+            #endif
             Text(timeString)
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.white)
