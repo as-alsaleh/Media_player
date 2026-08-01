@@ -135,8 +135,9 @@ struct SettingsView: View {
             traktStatus = "Couldn't reach trakt.tv."
             return
         }
-        if let url = URL(string: code.verification_url) { openURL(url) }
-        traktStatus = "Enter code \(code.user_code) at \(code.verification_url)"
+        // trakt.tv/activate/<code> lands with the code prefilled — one click to approve.
+        if let url = URL(string: "\(code.verification_url)/\(code.user_code)") { openURL(url) }
+        traktStatus = "Approve access in your browser (code \(code.user_code))."
 
         let interval = max(code.interval, 3)
         for _ in 0..<40 {
