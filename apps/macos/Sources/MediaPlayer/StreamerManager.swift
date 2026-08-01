@@ -23,6 +23,9 @@ final class StreamerManager: ObservableObject {
 
     #if os(macOS)
     private var process: Process?
+    private var lastConfig: ShareConfig?
+    private var lastPassword: String?
+    private var restartAttempts = 0
 
     static var helperURL: URL {
         // Contents/MacOS/mediacored next to the app binary.
@@ -33,6 +36,8 @@ final class StreamerManager: ObservableObject {
     func start(config: ShareConfig, password: String) {
         stop()
         lastError = nil
+        lastConfig = config
+        lastPassword = password
 
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("MediaPlayer", isDirectory: true)
@@ -81,20 +86,47 @@ final class StreamerManager: ObservableObject {
                 if line.hasPrefix("LISTEN "),
                    let url = URL(string: String(line.dropFirst("LISTEN ".count))) {
                     handle.readabilityHandler = nil
-                    Task { @MainActor in self?.baseURL = url }
+                    Task { @MainActor in
+                        self?.baseURL = url
+                        self?.restartAttempts = 0
+                    }
                     return
                 }
             }
+        }
+
+        // Watchdog: if the helper never reports LISTEN, kill and retry.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
+            guard let self, self.process == proc, self.baseURL == nil else { return }
+            proc.terminate()
+            self.attemptRestart(reason: "engine start timed out")
         }
 
         proc.terminationHandler = { [weak self] p in
             Task { @MainActor in
                 guard let self, self.process == p else { return }
                 self.baseURL = nil
-                if p.terminationStatus != 0 {
-                    self.lastError = "Streamer exited (status \(p.terminationStatus)) — check server/credentials"
-                }
+                self.attemptRestart(
+                    reason: "engine exited (status \(p.terminationStatus))")
             }
+        }
+    }
+
+    /// Restart with backoff after an unexpected helper death.
+    private func attemptRestart(reason: String) {
+        guard let config = lastConfig, let password = lastPassword else { return }
+        guard restartAttempts < 3 else {
+            lastError = "\(reason) — gave up after 3 retries. Check the server and Settings."
+            return
+        }
+        restartAttempts += 1
+        lastError = "\(reason) — reconnecting (attempt \(restartAttempts))…"
+        let delay = Double(restartAttempts) * 2.0
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, self.baseURL == nil else { return }
+            let attempts = self.restartAttempts
+            self.start(config: config, password: password)
+            self.restartAttempts = attempts
         }
     }
 

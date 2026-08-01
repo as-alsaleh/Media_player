@@ -597,10 +597,46 @@ struct BrowseView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 16) {
             if scanning {
                 ProgressView()
                 Text("Scanning your library…").foregroundStyle(.secondary)
+            } else if let error = streamer.lastError {
+                Image(systemName: "wifi.exclamationmark")
+                    .font(.system(size: 40))
+                    .foregroundStyle(.secondary)
+                Text("Can't reach the server")
+                    .font(.system(size: 19, weight: .bold, design: .rounded))
+                Text(error)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 420)
+                HStack(spacing: 10) {
+                    Button {
+                        onReconnect()
+                    } label: {
+                        Label("Retry", systemImage: "arrow.clockwise")
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .padding(.horizontal, 22).padding(.vertical, 10)
+                            .background(.white, in: Capsule())
+                            .foregroundStyle(.black)
+                    }
+                    .buttonStyle(.plain)
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Label("Settings", systemImage: "gearshape")
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .padding(.horizontal, 18).padding(.vertical, 10)
+                            .background(.white.opacity(0.1), in: Capsule())
+                            .foregroundStyle(.white)
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else if streamer.baseURL == nil {
+                ProgressView()
+                Text("Connecting…").foregroundStyle(.secondary)
             } else {
                 ContentUnavailableView(
                     "Nothing here yet", systemImage: "film.stack",
