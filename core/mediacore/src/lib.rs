@@ -4,6 +4,8 @@
 //! through a localhost HTTP server with Range support, and (M2) a SQLite
 //! media index with TMDB metadata.
 
+pub mod index;
+pub mod parse;
 pub mod smb;
 pub mod streamer;
 

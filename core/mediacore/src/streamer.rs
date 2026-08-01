@@ -3,6 +3,7 @@
 //! Serves SMB files to mpv as `http://127.0.0.1:{port}/stream/{path}` with
 //! HTTP Range support, so mpv's own cache/demuxer drives buffering and seeks.
 
+use crate::index::Index;
 use crate::smb::SmbFs;
 use axum::{
     body::Body,
@@ -19,13 +20,24 @@ use std::sync::Arc;
 /// Read chunk size per SMB round-trip (max SMB2 read is typically 1–8 MiB).
 const CHUNK: usize = 1024 * 1024;
 
+#[derive(Clone)]
+pub struct AppState {
+    pub fs: Arc<SmbFs>,
+    pub index: Option<Arc<Index>>,
+}
+
 pub struct Streamer {
-    fs: Arc<SmbFs>,
+    state: AppState,
 }
 
 impl Streamer {
     pub fn new(fs: SmbFs) -> Self {
-        Self { fs: Arc::new(fs) }
+        Self { state: AppState { fs: Arc::new(fs), index: None } }
+    }
+
+    pub fn with_index(mut self, index: Index) -> Self {
+        self.state.index = Some(Arc::new(index));
+        self
     }
 
     /// Bind 127.0.0.1:`port` (0 = ephemeral) and serve until the task is dropped.
@@ -34,7 +46,10 @@ impl Streamer {
         let app = Router::new()
             .route("/list", get(list))
             .route("/stream/*path", get(stream))
-            .with_state(self.fs);
+            .route("/library/scan", get(library_scan))
+            .route("/library/movies", get(library_movies))
+            .route("/library/episodes", get(library_episodes))
+            .with_state(self.state);
         let listener =
             tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port))).await?;
         let addr = listener.local_addr()?;
@@ -48,22 +63,53 @@ impl Streamer {
 }
 
 async fn list(
-    State(fs): State<Arc<SmbFs>>,
+    State(st): State<AppState>,
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
     let path = q.get("path").map(String::as_str).unwrap_or("");
-    match fs.list_dir(path).await {
+    match st.fs.list_dir(path).await {
         Ok(entries) => Json(entries).into_response(),
         Err(e) => (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
     }
 }
 
+async fn library_scan(
+    State(st): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let Some(index) = st.index else {
+        return (StatusCode::NOT_IMPLEMENTED, "no index configured").into_response();
+    };
+    let movies_root = q.get("movies").map(String::as_str).unwrap_or("movies");
+    let tv_root = q.get("tv").map(String::as_str).unwrap_or("tv");
+    match index.scan(&st.fs, movies_root, tv_root).await {
+        Ok((m, e)) => Json(serde_json::json!({"movies": m, "episodes": e})).into_response(),
+        Err(err) => (StatusCode::BAD_GATEWAY, err.to_string()).into_response(),
+    }
+}
+
+async fn library_movies(State(st): State<AppState>) -> Response {
+    match st.index.as_ref().map(|i| i.movies()) {
+        Some(Ok(rows)) => Json(rows).into_response(),
+        Some(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        None => (StatusCode::NOT_IMPLEMENTED, "no index configured").into_response(),
+    }
+}
+
+async fn library_episodes(State(st): State<AppState>) -> Response {
+    match st.index.as_ref().map(|i| i.episodes()) {
+        Some(Ok(rows)) => Json(rows).into_response(),
+        Some(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        None => (StatusCode::NOT_IMPLEMENTED, "no index configured").into_response(),
+    }
+}
+
 async fn stream(
-    State(fs): State<Arc<SmbFs>>,
+    State(st): State<AppState>,
     AxPath(path): AxPath<String>,
     headers: HeaderMap,
 ) -> Response {
-    let file = match fs.open(&path).await {
+    let file = match st.fs.open(&path).await {
         Ok(f) => f,
         Err(e) => return (StatusCode::NOT_FOUND, e.to_string()).into_response(),
     };

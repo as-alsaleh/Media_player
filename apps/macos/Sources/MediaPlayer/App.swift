@@ -25,6 +25,16 @@ struct ContentView: View {
     @State private var isDropTargeted = false
     @State private var showBrowser = true
     @State private var nowPlaying = ""
+    @State private var nowPlayingPath: String?
+    @State private var sidebarMode: SidebarMode = .library
+    @State private var pendingResume: Double?
+
+    private let progressTimer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
+
+    enum SidebarMode: String, CaseIterable {
+        case library = "Library"
+        case files = "Files"
+    }
 
     var body: some View {
         NavigationSplitView(columnVisibility: .constant(showBrowser ? .all : .detailOnly)) {
@@ -39,9 +49,19 @@ struct ContentView: View {
     private var sidebar: some View {
         Group {
             if streamer.baseURL != nil {
-                BrowserView(streamer: streamer) { url, name in
-                    nowPlaying = name
-                    player.load(url: url)
+                VStack(spacing: 0) {
+                    Picker("", selection: $sidebarMode) {
+                        ForEach(SidebarMode.allCases, id: \.self) { Text($0.rawValue) }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(8)
+                    Divider()
+                    switch sidebarMode {
+                    case .library:
+                        LibraryView(streamer: streamer, onPlay: startPlayback)
+                    case .files:
+                        BrowserView(streamer: streamer, onPlay: startPlayback)
+                    }
                 }
             } else {
                 ShareSetupView { config, password in
@@ -77,6 +97,30 @@ struct ContentView: View {
             controls
         }
         .background(KeyboardShortcuts(player: player))
+        .onReceive(progressTimer) { _ in saveProgress() }
+        .onChange(of: player.isPaused) { saveProgress() }
+        .onChange(of: player.duration) {
+            // Apply a pending resume once the file's duration is known.
+            if let resume = pendingResume, player.duration > resume {
+                player.seek(to: resume)
+                pendingResume = nil
+            }
+        }
+    }
+
+    private func startPlayback(url: URL, name: String) {
+        saveProgress()
+        nowPlaying = name
+        // Share-relative path = URL path after "/stream/".
+        let raw = url.path.removingPercentEncoding ?? url.path
+        nowPlayingPath = raw.hasPrefix("/stream/") ? String(raw.dropFirst("/stream/".count)) : nil
+        pendingResume = nowPlayingPath.flatMap(WatchProgress.position(for:))
+        player.load(url: url)
+    }
+
+    private func saveProgress() {
+        guard let path = nowPlayingPath, player.duration > 0 else { return }
+        WatchProgress.save(path: path, position: player.timePos, duration: player.duration)
     }
 
     private var controls: some View {

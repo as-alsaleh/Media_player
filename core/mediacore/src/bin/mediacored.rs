@@ -21,6 +21,9 @@ struct Args {
     /// 0 picks an ephemeral port; the bound address is printed on stdout.
     #[arg(long, default_value_t = 8291)]
     port: u16,
+    /// SQLite library index path; omit to disable the library endpoints.
+    #[arg(long)]
+    db: Option<std::path::PathBuf>,
 }
 
 #[tokio::main]
@@ -33,7 +36,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|_| "no --password-file and MEDIACORED_PASSWORD not set")?,
     };
     let fs = SmbFs::connect(&args.server, &args.share, &args.user, password.trim()).await?;
-    let addr = Streamer::new(fs).serve(args.port).await?;
+    let mut streamer = Streamer::new(fs);
+    if let Some(db) = &args.db {
+        streamer = streamer.with_index(mediacore::index::Index::open(db)?);
+    }
+    let addr = streamer.serve(args.port).await?;
     // Machine-readable ready line — the app parses this to find the port.
     println!("LISTEN http://{addr}");
     use std::io::Write;

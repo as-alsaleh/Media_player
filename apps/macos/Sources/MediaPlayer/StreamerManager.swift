@@ -26,6 +26,10 @@ final class StreamerManager: ObservableObject {
         stop()
         lastError = nil
 
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("MediaPlayer", isDirectory: true)
+        try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+
         let proc = Process()
         proc.executableURL = Self.helperURL
         proc.arguments = [
@@ -33,6 +37,7 @@ final class StreamerManager: ObservableObject {
             "--share", config.share,
             "--user", config.username,
             "--port", "0",
+            "--db", support.appendingPathComponent("library.sqlite").path,
         ]
         var env = ProcessInfo.processInfo.environment
         env["MEDIACORED_PASSWORD"] = password
@@ -86,6 +91,51 @@ final class StreamerManager: ObservableObject {
         comps.queryItems = [URLQueryItem(name: "path", value: path)]
         let (data, _) = try await URLSession.shared.data(from: comps.url!)
         return try JSONDecoder().decode([RemoteEntry].self, from: data)
+    }
+
+    struct LibraryMovie: Codable, Identifiable, Hashable {
+        let id: Int64
+        let title: String
+        let year: UInt16?
+        let path: String
+        let size: UInt64
+        let poster_url: String?
+        let overview: String?
+    }
+
+    struct LibraryEpisode: Codable, Identifiable, Hashable {
+        let id: Int64
+        let show: String
+        let season: UInt16
+        let episode: UInt16
+        let path: String
+        let size: UInt64
+    }
+
+    struct ScanResult: Codable {
+        let movies: Int
+        let episodes: Int
+    }
+
+    private func getJSON<T: Decodable>(_ pathComponent: String) async throws -> T {
+        guard let baseURL else { throw URLError(.cannotConnectToHost) }
+        let url = baseURL.appendingPathComponent(pathComponent)
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 600 // scans of large shares take a while
+        let (data, _) = try await URLSession.shared.data(for: request)
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    func scanLibrary() async throws -> ScanResult {
+        try await getJSON("library/scan")
+    }
+
+    func libraryMovies() async throws -> [LibraryMovie] {
+        try await getJSON("library/movies")
+    }
+
+    func libraryEpisodes() async throws -> [LibraryEpisode] {
+        try await getJSON("library/episodes")
     }
 
     func streamURL(path: String) -> URL? {
