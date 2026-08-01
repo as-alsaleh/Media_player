@@ -211,8 +211,8 @@ struct ContentView: View {
                                     }
                                     if let scrub = hoverScrub {
                                         Capsule()
-                                            .fill(.white.opacity(0.9))
-                                            .frame(width: 2.5, height: 14)
+                                            .fill(.white.opacity(0.8))
+                                            .frame(width: 2, height: 10)
                                             .position(x: scrub.x, y: geo.size.height / 2)
                                     }
                                 }
@@ -335,43 +335,41 @@ struct ContentView: View {
         .onChange(of: player.isPaused) { if player.isPaused { pokeControls() } }
     }
 
-    /// YouTube-style bubble over the timeline: mini frame preview (Jellyfin
-    /// trickplay tiles or a Plex BIF frame) plus the timestamp.
+    /// Compact YouTube-style tooltip hugging the timeline: mini frame
+    /// preview (when available) plus the timestamp.
     @ViewBuilder
     private func seekPreview(_ scrub: (x: CGFloat, time: Double, width: CGFloat)) -> some View {
-        let bubbleWidth: CGFloat = hasPreviewImages ? 200 : 96
+        let bubbleWidth: CGFloat = hasPreviewImages ? 148 : 56
         let x = min(max(scrub.x - bubbleWidth / 2, 0), scrub.width - bubbleWidth)
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             if let tp = previewInfo?.trickplay {
                 trickplayFrame(tp, time: scrub.time)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.35), lineWidth: 1))
-                    .shadow(color: .black.opacity(0.7), radius: 12, y: 4)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(.white.opacity(0.25), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.5), radius: 8, y: 2)
             } else if let template = previewInfo?.template {
                 let ms = Int(scrub.time / 10) * 10_000
                 FadeInImage(url: URL(string: template.replacingOccurrences(of: "{ms}", with: String(ms))))
-                    .frame(width: 200, height: 112)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.35), lineWidth: 1))
-                    .shadow(color: .black.opacity(0.7), radius: 12, y: 4)
+                    .frame(width: 148, height: 83)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(.white.opacity(0.25), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.5), radius: 8, y: 2)
             }
             Text(format(scrub.time))
-                .font(.system(size: 14, weight: .bold).monospacedDigit())
-                .foregroundStyle(.white)
-                .padding(.horizontal, 13).padding(.vertical, 7)
-                .background(.black.opacity(0.9), in: Capsule())
-                .overlay(Capsule().stroke(.white.opacity(0.25), lineWidth: 1))
-                .shadow(color: .black.opacity(0.5), radius: 8, y: 3)
+                .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                .foregroundStyle(.white.opacity(0.95))
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(.black.opacity(0.75), in: Capsule())
         }
         .frame(width: bubbleWidth)
-        .offset(x: x, y: hasPreviewImages ? -170 : -48)
+        .offset(x: x, y: hasPreviewImages ? -110 : -26)
         .allowsHitTesting(false)
     }
 
     /// One thumbnail cropped out of a Jellyfin trickplay tile-grid image.
     @ViewBuilder
     private func trickplayFrame(_ tp: StreamerManager.TrickplayInfo, time: Double) -> some View {
-        let displayW: CGFloat = 200
+        let displayW: CGFloat = 148
         let scale = displayW / CGFloat(tp.thumb_width)
         let displayH = (CGFloat(tp.thumb_height) * scale).rounded()
         let idx = max(0, min(Int(time * 1000 / Double(max(tp.interval_ms, 1))),
