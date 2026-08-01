@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+
+# Xcode / SwiftPM
+.build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+.swiftpm/
+
+# Rust
+core/mediacore/target/
+Cargo.lock.bak
+
+# Build artifacts
+build/
+*.xcframework

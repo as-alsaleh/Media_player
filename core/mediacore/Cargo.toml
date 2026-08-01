@@ -1,0 +1,20 @@
+[package]
+name = "mediacore"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-2.0-or-later"
+description = "Network + metadata core for MediaPlayer: SMB client, loopback streamer, indexer"
+
+[lib]
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = "0.7"
+thiserror = "1"
+tracing = "0.1"
+# SMB client — evaluate pure-Rust `smb` vs wrapping libsmb2; see docs/smb-client.md
+# uniffi = "0.28"   # enable when wiring the Swift FFI (M1 step 3)
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
