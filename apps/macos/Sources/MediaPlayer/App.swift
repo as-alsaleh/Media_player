@@ -57,6 +57,13 @@ struct ContentView: View {
         .onAppear(perform: autoConnect)
         .onReceive(progressTimer) { _ in saveProgress() }
         .onChange(of: player.isPaused) { saveProgress() }
+        .onChange(of: player.timePos) {
+            // Automatic intro/ad skipping (credits keep their button so the
+            // viewer can still watch them).
+            guard showPlayer, Prefs.introSkipMode == "auto",
+                  let marker = activeMarker, marker.kind != "credits" else { return }
+            player.seek(to: marker.end_secs)
+        }
         .onChange(of: player.duration) {
             if let resume = pendingResume, player.duration > resume {
                 player.seek(to: resume)
@@ -156,7 +163,7 @@ struct ContentView: View {
             .opacity(controlsVisible ? 1 : 0)
 
             // Skip marker / Next Episode button rides above the control bar.
-            if let marker = activeMarker {
+            if let marker = activeMarker, Prefs.introSkipMode != "off" {
                 VStack {
                     Spacer()
                     HStack {
@@ -206,8 +213,8 @@ struct ContentView: View {
                     }
 
                     HStack(spacing: 26) {
-                        Button { player.seek(to: max(player.timePos - 15, 0)) } label: {
-                            Image(systemName: "gobackward.15").font(.system(size: 20))
+                        Button { player.seek(to: max(player.timePos - Double(Prefs.skipBackSecs), 0)) } label: {
+                            Image(systemName: skipIcon(back: true)).font(.system(size: 20))
                         }
                         .buttonStyle(.plain)
                         Button { player.togglePause() } label: {
@@ -218,8 +225,8 @@ struct ContentView: View {
                         }
                         .buttonStyle(.plain)
                         .keyboardShortcut(.space, modifiers: [])
-                        Button { player.seek(to: player.timePos + 30) } label: {
-                            Image(systemName: "goforward.30").font(.system(size: 20))
+                        Button { player.seek(to: player.timePos + Double(Prefs.skipForwardSecs)) } label: {
+                            Image(systemName: skipIcon(back: false)).font(.system(size: 20))
                         }
                         .buttonStyle(.plain)
                     }
@@ -260,13 +267,22 @@ struct ContentView: View {
         .onChange(of: player.isPaused) { if player.isPaused { pokeControls() } }
     }
 
+    /// SF Symbol matching the configured skip length.
+    private func skipIcon(back: Bool) -> String {
+        let secs = back ? Prefs.skipBackSecs : Prefs.skipForwardSecs
+        let known = [5, 10, 15, 30, 45, 60, 75, 90].contains(secs) ? "\(secs)" : ""
+        return back ? "gobackward.\(known.isEmpty ? "minus" : known)"
+                    : "goforward.\(known.isEmpty ? "plus" : known)"
+    }
+
     /// Hidden buttons that give the player standard keyboard control:
-    /// ←/→ seek ∓10s, ↑/↓ volume, M mute, F fullscreen, Esc close.
+    /// ←/→ seek by the configured skip lengths, ↑/↓ volume, M mute,
+    /// F fullscreen, Esc close.
     private var playerShortcuts: some View {
         Group {
-            Button("") { player.seek(to: max(player.timePos - 10, 0)); pokeControls() }
+            Button("") { player.seek(to: max(player.timePos - Double(Prefs.skipBackSecs), 0)); pokeControls() }
                 .keyboardShortcut(.leftArrow, modifiers: [])
-            Button("") { player.seek(to: player.timePos + 10); pokeControls() }
+            Button("") { player.seek(to: player.timePos + Double(Prefs.skipForwardSecs)); pokeControls() }
                 .keyboardShortcut(.rightArrow, modifiers: [])
             Button("") { player.adjustVolume(by: 5); pokeControls() }
                 .keyboardShortcut(.upArrow, modifiers: [])
@@ -289,6 +305,7 @@ struct ContentView: View {
         nowPlayingPath = path
         pendingResume = resume
         showPlayer = true
+        Prefs.apply(to: player)
         player.load(url: url)
 
         markers = []
@@ -298,7 +315,7 @@ struct ContentView: View {
         }
 
         player.onFileEnded = {
-            if let next = NowPlaying.nextEpisode {
+            if Prefs.autoPlayNext, let next = NowPlaying.nextEpisode {
                 next()
             } else {
                 closePlayer()

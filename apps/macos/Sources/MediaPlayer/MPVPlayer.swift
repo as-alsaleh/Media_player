@@ -197,6 +197,11 @@ final class MPVPlayer: ObservableObject {
         mpv_set_property_string(mpv, "af", on ? "dynaudnorm=g=5:f=250:r=0.9:p=0.5" : "")
     }
 
+    func setString(_ name: String, _ value: String) {
+        guard let mpv else { return }
+        mpv_set_property_string(mpv, name, value)
+    }
+
     func setDouble(_ name: String, _ value: Double) {
         guard let mpv else { return }
         var v = value

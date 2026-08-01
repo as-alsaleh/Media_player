@@ -215,10 +215,11 @@ async fn library_scan(
     let Some(index) = st.index else {
         return (StatusCode::NOT_IMPLEMENTED, "no index configured").into_response();
     };
+    let lang = q.get("lang").cloned().unwrap_or_default();
     let Some(fs) = &st.fs else {
         // Plex-only mode: nothing to scan, but enrichment can still run.
         let enriched = match &st.tmdb_key {
-            Some(key) => crate::tmdb::enrich(&index, key).await,
+            Some(key) => crate::tmdb::enrich(&index, key, &lang).await,
             None => 0,
         };
         return Json(serde_json::json!({"movies": 0, "episodes": 0, "enriched": enriched}))
@@ -229,7 +230,7 @@ async fn library_scan(
     match index.scan(fs, movies_root, tv_root).await {
         Ok((m, e)) => {
             let enriched = match &st.tmdb_key {
-                Some(key) => crate::tmdb::enrich(&index, key).await,
+                Some(key) => crate::tmdb::enrich(&index, key, &lang).await,
                 None => 0,
             };
             Json(serde_json::json!({"movies": m, "episodes": e, "enriched": enriched}))

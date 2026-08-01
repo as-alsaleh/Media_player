@@ -114,6 +114,7 @@ struct RootView: View {
         nowPlayingPath = path
         pendingResume = resume
         showPlayer = true
+        Prefs.apply(to: player)
         player.load(url: url)
 
         markers = []
@@ -123,7 +124,7 @@ struct RootView: View {
         }
 
         player.onFileEnded = { [self] in
-            if let next = NowPlaying.nextEpisode {
+            if Prefs.autoPlayNext, let next = NowPlaying.nextEpisode {
                 next()
             } else {
                 if !player.isPaused { player.togglePause() }
@@ -174,24 +175,36 @@ struct PlayerScreen: View {
         }
     }
 
+    private func skipIcon(back: Bool) -> String {
+        let secs = back ? Prefs.skipBackSecs : Prefs.skipForwardSecs
+        let known = [5, 10, 15, 30, 45, 60, 75, 90].contains(secs) ? "\(secs)" : ""
+        return back ? "gobackward.\(known.isEmpty ? "minus" : known)"
+                    : "goforward.\(known.isEmpty ? "plus" : known)"
+    }
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
             PlayerView(player: player).ignoresSafeArea()
 
-            // Double-tap edges to seek ±10s; single tap toggles controls.
+            // Double-tap edges to seek; single tap toggles controls.
             HStack(spacing: 0) {
                 Color.clear.contentShape(Rectangle())
-                    .onTapGesture(count: 2) { player.seek(to: max(player.timePos - 10, 0)) }
+                    .onTapGesture(count: 2) { player.seek(to: max(player.timePos - Double(Prefs.skipBackSecs), 0)) }
                 Color.clear.contentShape(Rectangle())
-                    .onTapGesture(count: 2) { player.seek(to: player.timePos + 10) }
+                    .onTapGesture(count: 2) { player.seek(to: player.timePos + Double(Prefs.skipForwardSecs)) }
             }
             .onTapGesture {
                 withAnimation { controlsVisible.toggle() }
                 if controlsVisible { scheduleHide() }
             }
+            .onChange(of: player.timePos) {
+                guard Prefs.introSkipMode == "auto",
+                      let marker = activeMarker, marker.kind != "credits" else { return }
+                player.seek(to: marker.end_secs)
+            }
 
-            if let marker = activeMarker {
+            if let marker = activeMarker, Prefs.introSkipMode != "off" {
                 VStack {
                     Spacer()
                     HStack {
@@ -275,8 +288,8 @@ struct PlayerScreen: View {
                         .foregroundStyle(.white)
 
                         HStack(spacing: 40) {
-                            Button { player.seek(to: max(player.timePos - 15, 0)) } label: {
-                                Image(systemName: "gobackward.15").font(.system(size: 24))
+                            Button { player.seek(to: max(player.timePos - Double(Prefs.skipBackSecs), 0)) } label: {
+                                Image(systemName: skipIcon(back: true)).font(.system(size: 24))
                             }
                             Button { player.togglePause() } label: {
                                 Image(systemName: player.isPaused ? "play.fill" : "pause.fill")
@@ -284,8 +297,8 @@ struct PlayerScreen: View {
                                     .frame(width: 60, height: 60)
                                     .background(.white.opacity(0.15), in: Circle())
                             }
-                            Button { player.seek(to: player.timePos + 30) } label: {
-                                Image(systemName: "goforward.30").font(.system(size: 24))
+                            Button { player.seek(to: player.timePos + Double(Prefs.skipForwardSecs)) } label: {
+                                Image(systemName: skipIcon(back: false)).font(.system(size: 24))
                             }
                         }
                         .foregroundStyle(.white)

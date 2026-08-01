@@ -335,17 +335,22 @@ final class StreamerManager: ObservableObject {
         let episodes: Int
     }
 
-    private func getJSON<T: Decodable>(_ pathComponent: String) async throws -> T {
+    private func getJSON<T: Decodable>(_ pathComponent: String,
+                                       query: [URLQueryItem] = []) async throws -> T {
         guard let baseURL else { throw URLError(.cannotConnectToHost) }
-        let url = baseURL.appendingPathComponent(pathComponent)
-        var request = URLRequest(url: url)
+        var comps = URLComponents(url: baseURL.appendingPathComponent(pathComponent),
+                                  resolvingAgainstBaseURL: false)!
+        if !query.isEmpty { comps.queryItems = query }
+        var request = URLRequest(url: comps.url!)
         request.timeoutInterval = 600 // scans of large shares take a while
         let (data, _) = try await URLSession.shared.data(for: request)
         return try JSONDecoder().decode(T.self, from: data)
     }
 
     func scanLibrary() async throws -> ScanResult {
-        try await getJSON("library/scan")
+        let lang = UserDefaults.standard.string(forKey: "langMetadata") ?? ""
+        return try await getJSON("library/scan",
+                                 query: lang.isEmpty ? [] : [URLQueryItem(name: "lang", value: lang)])
     }
 
     func libraryMovies() async throws -> [LibraryMovie] {

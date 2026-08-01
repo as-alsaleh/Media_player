@@ -21,6 +21,7 @@ targets:
       - path: ../macos/Sources/MediaPlayer/BrowserView.swift
       - path: ../macos/Sources/MediaPlayer/WatchProgress.swift
       - path: ../macos/Sources/MediaPlayer/ShareStore.swift
+      - path: ../macos/Sources/MediaPlayer/Prefs.swift
       - path: ../macos/Sources/MediaPlayer/PlayerSettingsView.swift
       - path: ../macos/Sources/MediaPlayer/SettingsView.swift
       - path: ../macos/Sources/MediaPlayer/PlexAuthButton.swift
@@ -52,6 +53,7 @@ targets:
       - path: ../macos/Sources/MediaPlayer/BrowserView.swift
       - path: ../macos/Sources/MediaPlayer/WatchProgress.swift
       - path: ../macos/Sources/MediaPlayer/ShareStore.swift
+      - path: ../macos/Sources/MediaPlayer/Prefs.swift
       - path: ../macos/Sources/MediaPlayer/PlayerSettingsView.swift
       - path: ../macos/Sources/MediaPlayer/SettingsView.swift
       - path: ../macos/Sources/MediaPlayer/PlexAuthButton.swift

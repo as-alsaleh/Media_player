@@ -26,10 +26,12 @@ fn backdrop(hit: &SearchResult) -> Option<String> {
 }
 
 /// Fill poster/backdrop/overview for movies and shows that lack them.
+/// `language` is a BCP-47 tag ("en-US", "ar") for localized text/art.
 /// Returns the number of items enriched.
-pub async fn enrich(index: &Arc<Index>, api_key: &str) -> usize {
+pub async fn enrich(index: &Arc<Index>, api_key: &str, language: &str) -> usize {
     let client = reqwest::Client::new();
     let mut enriched = 0;
+    let language = if language.is_empty() { "en-US" } else { language };
 
     if let Ok(movies) = index.movies() {
         for movie in movies.iter().filter(|m| m.poster_url.is_none() || m.backdrop_url.is_none()) {
@@ -39,6 +41,7 @@ pub async fn enrich(index: &Arc<Index>, api_key: &str) -> usize {
                     ("api_key", api_key),
                     ("query", &movie.title),
                     ("include_adult", "false"),
+                    ("language", language),
                 ]);
             if let Some(year) = movie.year {
                 req = req.query(&[("year", year.to_string())]);
@@ -62,7 +65,7 @@ pub async fn enrich(index: &Arc<Index>, api_key: &str) -> usize {
             let query = crate::parse::parse_movie(&show.name).title;
             let Ok(resp) = client
                 .get("https://api.themoviedb.org/3/search/tv")
-                .query(&[("api_key", api_key), ("query", &query)])
+                .query(&[("api_key", api_key), ("query", &query), ("language", language)])
                 .send()
                 .await
             else {
