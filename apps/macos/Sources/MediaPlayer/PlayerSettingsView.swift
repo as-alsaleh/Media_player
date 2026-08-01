@@ -43,7 +43,6 @@ struct PlayerSettingsView: View {
                     Toggle(isOn: $boost) {
                         Text("Volume Boost (night mode)").font(.system(size: 12.5))
                     }
-                    .toggleStyle(.switch)
                     .onChange(of: boost) { player.setAudioBoost(boost) }
                     HStack(spacing: 6) {
                         ForEach(speeds, id: \.self) { s in
