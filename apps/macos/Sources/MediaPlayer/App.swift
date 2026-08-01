@@ -238,6 +238,24 @@ struct ContentView: View {
             }
             .opacity(controlsVisible ? 1 : 0)
             .allowsHitTesting(controlsVisible)
+
+            // Minimal progress line while controls are hidden.
+            if !controlsVisible, player.duration > 0 {
+                VStack {
+                    Spacer()
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Rectangle().fill(.white.opacity(0.15))
+                            Rectangle()
+                                .fill(Color(red: 0.9, green: 0.15, blue: 0.13))
+                                .frame(width: geo.size.width * min(player.timePos / player.duration, 1))
+                        }
+                    }
+                    .frame(height: 3)
+                }
+                .ignoresSafeArea()
+                .transition(.opacity)
+            }
         }
         .onContinuousHover { phase in
             if case .active = phase { pokeControls() }

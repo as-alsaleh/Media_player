@@ -232,6 +232,22 @@ struct PlayerScreen: View {
                 }
             }
 
+            if !controlsVisible, player.duration > 0 {
+                VStack {
+                    Spacer()
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Rectangle().fill(.white.opacity(0.15))
+                            Rectangle()
+                                .fill(Color(red: 0.9, green: 0.15, blue: 0.13))
+                                .frame(width: geo.size.width * min(player.timePos / player.duration, 1))
+                        }
+                    }
+                    .frame(height: 3)
+                }
+                .ignoresSafeArea()
+            }
+
             if controlsVisible {
                 VStack {
                     HStack(spacing: 12) {

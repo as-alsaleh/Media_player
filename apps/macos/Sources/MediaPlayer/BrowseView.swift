@@ -50,6 +50,47 @@ struct CompatSlider: View {
     }
 }
 
+let accentRed = Color(red: 0.9, green: 0.15, blue: 0.13)
+
+/// Poster/backdrop image that fades in when loaded, with a subtle gradient
+/// placeholder instead of a hard gray box.
+struct FadeInImage: View {
+    let url: URL?
+
+    var body: some View {
+        AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.3))) { phase in
+            switch phase {
+            case .success(let image):
+                image.resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .transition(.opacity)
+            default:
+                ZStack {
+                    LinearGradient(
+                        colors: [.white.opacity(0.04), .white.opacity(0.09)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing)
+                    Image(systemName: "film")
+                        .font(.title2)
+                        .foregroundStyle(.white.opacity(0.2))
+                }
+            }
+        }
+    }
+}
+
+/// Small frosted metadata chip (year, runtime, source…).
+struct Chip: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11.5, weight: .semibold))
+            .padding(.horizontal, 9).padding(.vertical, 4)
+            .background(.white.opacity(0.14), in: Capsule())
+            .foregroundStyle(.white.opacity(0.9))
+    }
+}
+
 /// What comes after the current item — set when an episode starts playing
 /// so the player can offer "Next Episode" and auto-advance at the end.
 @MainActor
@@ -160,12 +201,20 @@ struct BrowseView: View {
                 .fixedSize()
 
             ForEach(Tab.allCases, id: \.self) { t in
-                Button(t.rawValue) {
+                Button {
                     withAnimation(.easeOut(duration: 0.2)) { tab = t }
+                } label: {
+                    VStack(spacing: 3) {
+                        Text(t.rawValue)
+                        Capsule()
+                            .fill(accentRed)
+                            .frame(height: 2.5)
+                            .opacity(tab == t ? 1 : 0)
+                    }
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 13.5, weight: tab == t ? .bold : .regular))
-                .foregroundStyle(tab == t ? .white : .white.opacity(0.65))
+                .font(.system(size: 13.5, weight: tab == t ? .bold : .semibold))
+                .foregroundStyle(tab == t ? .white : .white.opacity(0.6))
                 .fixedSize()
             }
 
@@ -280,11 +329,7 @@ struct BrowseView: View {
         if let movie = featured {
             ZStack(alignment: .bottomLeading) {
                 GeometryReader { geo in
-                    AsyncImage(url: movie.backdrop_url.flatMap(URL.init)) { image in
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    } placeholder: {
-                        Rectangle().fill(.black)
-                    }
+                    FadeInImage(url: movie.backdrop_url.flatMap(URL.init))
                     .frame(width: geo.size.width, height: 480)
                     .clipped()
                 }
@@ -306,20 +351,12 @@ struct BrowseView: View {
                     Text(movie.title)
                         .font(.system(size: 54, weight: .black))
                         .shadow(color: .black.opacity(0.8), radius: 10)
-                    HStack(spacing: 10) {
-                        if let year = movie.year {
-                            Text(String(year))
-                        }
-                        if let dur = movie.duration_secs {
-                            Text("\(Int(dur) / 60) min")
-                        }
-                        Text(movie.source == "plex" ? "PLEX" : "SMB")
-                            .font(.caption2.bold())
-                            .padding(.horizontal, 5).padding(.vertical, 1.5)
-                            .overlay(RoundedRectangle(cornerRadius: 3).stroke(.white.opacity(0.5), lineWidth: 1))
+                    HStack(spacing: 8) {
+                        if let year = movie.year { Chip(text: String(year)) }
+                        if let dur = movie.duration_secs { Chip(text: "\(Int(dur) / 60) min") }
+                        Chip(text: movie.source == "plex" ? "PLEX" : "SMB")
+                        if movie.view_offset_secs != nil { Chip(text: "Resume") }
                     }
-                    .font(.callout)
-                    .foregroundStyle(.white.opacity(0.85))
                     if let overview = movie.overview {
                         Text(overview)
                             .font(.system(size: 14.5))
@@ -409,6 +446,17 @@ struct BrowseView: View {
             case .movie(let m): return m.watched
             case .episode(let e, _): return e.watched
             }
+        }
+
+        /// "34 min left" for in-progress items.
+        var remainingText: String? {
+            let pair: (Double?, Double?)
+            switch self {
+            case .movie(let m): pair = (m.view_offset_secs, m.duration_secs)
+            case .episode(let e, _): pair = (e.view_offset_secs, e.duration_secs)
+            }
+            guard let offset = pair.0, let duration = pair.1, duration > offset else { return nil }
+            return "\(Int((duration - offset) / 60)) min left"
         }
     }
 
@@ -510,9 +558,14 @@ struct BrowseView: View {
     }
 
     private func sectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: 21, weight: .bold))
-            .padding(.horizontal, edgePad)
+        HStack(spacing: 10) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(accentRed)
+                .frame(width: 4, height: 20)
+            Text(title)
+                .font(.system(size: 21, weight: .bold))
+        }
+        .padding(.horizontal, edgePad)
     }
 
     private var emptyState: some View {
@@ -638,14 +691,7 @@ struct PosterCard: View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 6) {
                 ZStack(alignment: .bottom) {
-                    AsyncImage(url: posterURL.flatMap(URL.init)) { image in
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    } placeholder: {
-                        ZStack {
-                            Rectangle().fill(.white.opacity(0.06))
-                            Image(systemName: "film").font(.title).foregroundStyle(.secondary)
-                        }
-                    }
+                    FadeInImage(url: posterURL.flatMap(URL.init))
                     .frame(width: 152, height: 228)
                     .clipped()
 
@@ -665,10 +711,10 @@ struct PosterCard: View {
                         }
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(.white.opacity(hovering ? 0.7 : 0), lineWidth: 2))
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(.white.opacity(hovering ? 0.65 : 0.07), lineWidth: hovering ? 2 : 1))
                 .shadow(color: .black.opacity(hovering ? 0.8 : 0.35),
                         radius: hovering ? 16 : 5, y: 5)
 
@@ -709,11 +755,7 @@ struct ContinueCard: View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 6) {
                 ZStack {
-                    AsyncImage(url: item.backdropOrPoster.flatMap(URL.init)) { image in
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    } placeholder: {
-                        Rectangle().fill(.white.opacity(0.06))
-                    }
+                    FadeInImage(url: item.backdropOrPoster.flatMap(URL.init))
                     .frame(width: 290, height: 163)
                     .clipped()
 
@@ -741,15 +783,25 @@ struct ContinueCard: View {
                         }
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(.white.opacity(hovering ? 0.65 : 0.07), lineWidth: hovering ? 2 : 1))
                 .shadow(color: .black.opacity(hovering ? 0.8 : 0.35),
                         radius: hovering ? 14 : 5, y: 4)
 
-                Text(item.label)
-                    .font(.system(size: 12.5))
-                    .lineLimit(1)
-                    .frame(width: 290, alignment: .leading)
-                    .foregroundStyle(.white.opacity(hovering ? 1 : 0.75))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(item.label)
+                        .font(.system(size: 12.5, weight: .medium))
+                        .lineLimit(1)
+                        .foregroundStyle(.white.opacity(hovering ? 1 : 0.8))
+                    if let remaining = item.remainingText {
+                        Text(remaining)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.white.opacity(0.45))
+                    }
+                }
+                .frame(width: 290, alignment: .leading)
             }
             .scaleEffect(hovering ? 1.05 : 1.0)
             .animation(.spring(duration: 0.22), value: hovering)
@@ -788,11 +840,7 @@ struct MovieDetailSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .bottomLeading) {
-                AsyncImage(url: (movie.backdrop_url ?? movie.poster_url).flatMap(URL.init)) { image in
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Rectangle().fill(.black)
-                }
+                FadeInImage(url: (movie.backdrop_url ?? movie.poster_url).flatMap(URL.init))
                 .frame(height: 280)
                 .clipped()
                 LinearGradient(colors: [.clear, .black.opacity(0.95)], startPoint: .top, endPoint: .bottom)
@@ -904,11 +952,7 @@ struct ShowDetailSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .bottomLeading) {
-                AsyncImage(url: show.backdrop_url.flatMap(URL.init)) { image in
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Rectangle().fill(.black)
-                }
+                FadeInImage(url: show.backdrop_url.flatMap(URL.init))
                 .frame(height: 200)
                 .clipped()
                 LinearGradient(colors: [.clear, .black.opacity(0.9)], startPoint: .top, endPoint: .bottom)
