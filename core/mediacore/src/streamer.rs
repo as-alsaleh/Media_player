@@ -174,6 +174,7 @@ impl Streamer {
             .route("/plex/switch", get(plex_switch))
             .route("/plex/markers", get(plex_markers))
             .route("/plex/subtitles", get(plex_subtitles))
+            .route("/plex/preview", get(plex_preview))
             .route("/plex/rate", get(plex_rate))
             .route("/plex/watched", get(plex_watched))
             .route("/plex/login/start", get(plex_login_start))
@@ -443,6 +444,16 @@ async fn plex_markers(
         return (StatusCode::BAD_REQUEST, "plex + rating_key required").into_response();
     };
     Json(plex.markers(key).await).into_response()
+}
+
+async fn plex_preview(
+    State(st): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (Some(plex), Some(key)) = (&st.plex, q.get("rating_key")) else {
+        return (StatusCode::BAD_REQUEST, "plex + rating_key required").into_response();
+    };
+    Json(serde_json::json!({"template": plex.preview_template(key).await})).into_response()
 }
 
 async fn plex_subtitles(

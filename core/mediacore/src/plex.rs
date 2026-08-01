@@ -187,6 +187,9 @@ struct Media {
 #[derive(Deserialize)]
 struct Part {
     key: String,
+    id: Option<u64>,
+    /// "sd" when the server has generated video preview thumbnails (BIF).
+    indexes: Option<String>,
     #[serde(rename = "Stream", default)]
     streams: Vec<StreamRaw>,
 }
@@ -607,6 +610,22 @@ impl PlexSource {
             .into_iter()
             .find(|r| r.provides.contains("server") && r.client_identifier == machine)
             .and_then(|r| r.access_token)
+    }
+
+    /// Seek-preview thumbnail URL template ("{ms}" placeholder) for an item,
+    /// available when the server has generated video preview thumbnails.
+    pub async fn preview_template(&self, rating_key: &str) -> Option<String> {
+        let list: ItemList = self.get(&format!("/library/metadata/{rating_key}")).await?;
+        let part = list.items.first()?.media.first()?.parts.first()?;
+        if part.indexes.as_deref() != Some("sd") {
+            return None;
+        }
+        let id = part.id?;
+        let token = self.media_token.as_deref().unwrap_or(&self.token);
+        Some(format!(
+            "{}/library/parts/{id}/indexes/sd/{{ms}}?X-Plex-Token={token}",
+            self.base
+        ))
     }
 
     /// External subtitle streams for one item — sidecar files next to the

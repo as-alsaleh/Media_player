@@ -278,6 +278,17 @@ final class StreamerManager: ObservableObject {
         return try? JSONDecoder().decode(PlexLoginResult.self, from: data)
     }
 
+    /// Seek-preview thumbnail URL template ("{ms}" placeholder), when the
+    /// Plex server has generated video preview thumbnails for the item.
+    func plexPreviewTemplate(ratingKey: String) async -> String? {
+        guard let baseURL else { return nil }
+        struct Resp: Codable { let template: String? }
+        var comps = URLComponents(url: baseURL.appendingPathComponent("plex/preview"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "rating_key", value: ratingKey)]
+        guard let (data, _) = try? await URLSession.shared.data(from: comps.url!) else { return nil }
+        return (try? JSONDecoder().decode(Resp.self, from: data))?.template
+    }
+
     struct PlexSubtitle: Codable, Hashable {
         let url: String
         let lang: String?

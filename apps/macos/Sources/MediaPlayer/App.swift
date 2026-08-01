@@ -31,7 +31,12 @@ struct ContentView: View {
     @State private var controlsVisible = true
     @State private var hideWork: DispatchWorkItem?
     @State private var showSettings = false
+    @State private var showSettingsBottom = false
     @State private var volumeLevel: Double = 100
+    /// Hover position over the timeline: x in slider space, target time,
+    /// and the slider's width (for clamping the bubble).
+    @State private var hoverScrub: (x: CGFloat, time: Double, width: CGFloat)?
+    @State private var previewTemplate: String?
 
     private let progressTimer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
@@ -192,19 +197,19 @@ struct ContentView: View {
                         Text(format(player.timePos))
                             .font(.system(size: 12, weight: .medium).monospacedDigit())
                             .foregroundStyle(.white.opacity(0.85))
-                        Slider(
-                            value: Binding(
-                                get: { player.timePos },
-                                set: { player.seek(to: $0) }
-                            ),
-                            in: 0...max(player.duration, 1)
-                        )
-                        .tint(progressRed)
-                        .controlSize(.small)
-                        // Intro/ad/credits marker ticks on the timeline.
-                        .background {
-                            if player.duration > 0, !markers.isEmpty {
-                                GeometryReader { geo in
+                        GeometryReader { geo in
+                            Slider(
+                                value: Binding(
+                                    get: { player.timePos },
+                                    set: { player.seek(to: $0) }
+                                ),
+                                in: 0...max(player.duration, 1)
+                            )
+                            .tint(progressRed)
+                            .controlSize(.small)
+                            // Intro/ad/credits marker ticks on the timeline.
+                            .background {
+                                if player.duration > 0, !markers.isEmpty {
                                     ForEach(markers, id: \.self) { m in
                                         Capsule()
                                             .fill(.white.opacity(0.55))
@@ -214,9 +219,26 @@ struct ContentView: View {
                                                 y: geo.size.height / 2)
                                     }
                                 }
-                                .allowsHitTesting(false)
+                            }
+                            // Seek preview: track the hovered timestamp.
+                            .onContinuousHover { phase in
+                                switch phase {
+                                case .active(let pt):
+                                    guard player.duration > 0, geo.size.width > 0 else { return }
+                                    let frac = min(max(pt.x / geo.size.width, 0), 1)
+                                    hoverScrub = (pt.x, frac * player.duration, geo.size.width)
+                                case .ended:
+                                    hoverScrub = nil
+                                }
+                            }
+                            // The bubble itself, floating above the bar.
+                            .overlay(alignment: .topLeading) {
+                                if let scrub = hoverScrub {
+                                    seekPreview(scrub)
+                                }
                             }
                         }
+                        .frame(height: 20)
                         Text(format(player.duration))
                             .font(.system(size: 12, weight: .medium).monospacedDigit())
                             .foregroundStyle(.white.opacity(0.85))
@@ -257,6 +279,15 @@ struct ContentView: View {
                                 .controlSize(.mini)
                                 .tint(.white.opacity(0.7))
                                 .frame(width: 90)
+                            Button { showSettingsBottom = true } label: {
+                                Image(systemName: "gearshape.fill")
+                                    .font(.system(size: 14, weight: .semibold))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Playback settings")
+                            .popover(isPresented: $showSettingsBottom, arrowEdge: .top) {
+                                PlayerSettingsView(player: player)
+                            }
                             Button { NSApp.keyWindow?.toggleFullScreen(nil) } label: {
                                 Image(systemName: "arrow.up.left.and.arrow.down.right")
                                     .font(.system(size: 14, weight: .semibold))
@@ -303,6 +334,34 @@ struct ContentView: View {
         .onChange(of: player.isPaused) { if player.isPaused { pokeControls() } }
     }
 
+    /// YouTube-style bubble over the timeline: frame preview (when the Plex
+    /// server has generated video preview thumbnails) plus the timestamp.
+    @ViewBuilder
+    private func seekPreview(_ scrub: (x: CGFloat, time: Double, width: CGFloat)) -> some View {
+        let bubbleWidth: CGFloat = previewTemplate != nil ? 176 : 64
+        let x = min(max(scrub.x - bubbleWidth / 2, 0), scrub.width - bubbleWidth)
+        VStack(spacing: 5) {
+            if let template = previewTemplate {
+                // BIF frames come every few seconds; round to 10s so hovering
+                // doesn't hammer the server.
+                let ms = Int(scrub.time / 10) * 10_000
+                FadeInImage(url: URL(string: template.replacingOccurrences(of: "{ms}", with: String(ms))))
+                    .frame(width: 176, height: 99)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.3), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.6), radius: 10, y: 4)
+            }
+            Text(format(scrub.time))
+                .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                .foregroundStyle(.white)
+                .padding(.horizontal, 9).padding(.vertical, 4)
+                .background(.black.opacity(0.8), in: Capsule())
+        }
+        .frame(width: bubbleWidth)
+        .offset(x: x, y: previewTemplate != nil ? -140 : -36)
+        .allowsHitTesting(false)
+    }
+
     /// SF Symbol matching the configured skip length.
     private func skipIcon(back: Bool) -> String {
         let secs = back ? Prefs.skipBackSecs : Prefs.skipForwardSecs
@@ -347,9 +406,11 @@ struct ContentView: View {
         player.load(url: url)
 
         markers = []
+        previewTemplate = nil
         if path.hasPrefix("plex:") {
             let key = String(path.dropFirst("plex:".count))
             Task { markers = await streamer.plexMarkers(ratingKey: key) }
+            Task { previewTemplate = await streamer.plexPreviewTemplate(ratingKey: key) }
             Task { await loadExternalSubtitles(ratingKey: key) }
         }
 
