@@ -15,8 +15,10 @@ struct Args {
     #[arg(long)]
     user: String,
     /// File containing the SMB password (avoids exposing it in `ps`).
+    /// Alternatively set MEDIACORED_PASSWORD in the environment.
     #[arg(long)]
-    password_file: std::path::PathBuf,
+    password_file: Option<std::path::PathBuf>,
+    /// 0 picks an ephemeral port; the bound address is printed on stdout.
     #[arg(long, default_value_t = 8291)]
     port: u16,
 }
@@ -25,12 +27,17 @@ struct Args {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
     let args = Args::parse();
-    let password = std::fs::read_to_string(&args.password_file)?;
+    let password = match &args.password_file {
+        Some(p) => std::fs::read_to_string(p)?,
+        None => std::env::var("MEDIACORED_PASSWORD")
+            .map_err(|_| "no --password-file and MEDIACORED_PASSWORD not set")?,
+    };
     let fs = SmbFs::connect(&args.server, &args.share, &args.user, password.trim()).await?;
     let addr = Streamer::new(fs).serve(args.port).await?;
-    println!("serving //{}/{} on http://{addr}", args.server, args.share);
-    println!("  list:   http://{addr}/list?path=movies");
-    println!("  stream: http://{addr}/stream/movies/<file>");
+    // Machine-readable ready line — the app parses this to find the port.
+    println!("LISTEN http://{addr}");
+    use std::io::Write;
+    std::io::stdout().flush()?;
     tokio::signal::ctrl_c().await?;
     Ok(())
 }

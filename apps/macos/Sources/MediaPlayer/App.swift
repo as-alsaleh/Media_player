@@ -21,15 +21,49 @@ struct MediaPlayerApp: App {
 
 struct ContentView: View {
     @StateObject private var player = MPVPlayer()
+    @StateObject private var streamer = StreamerManager()
     @State private var isDropTargeted = false
+    @State private var showBrowser = true
+    @State private var nowPlaying = ""
 
     var body: some View {
+        NavigationSplitView(columnVisibility: .constant(showBrowser ? .all : .detailOnly)) {
+            sidebar
+                .navigationSplitViewColumnWidth(min: 240, ideal: 300)
+        } detail: {
+            playerPane
+        }
+        .onAppear(perform: autoConnect)
+    }
+
+    private var sidebar: some View {
+        Group {
+            if streamer.baseURL != nil {
+                BrowserView(streamer: streamer) { url, name in
+                    nowPlaying = name
+                    player.load(url: url)
+                }
+            } else {
+                ShareSetupView { config, password in
+                    ShareStore.save(config, password: password)
+                    streamer.start(config: config, password: password)
+                }
+                if let err = streamer.lastError {
+                    Text(err).foregroundStyle(.red).font(.caption).padding()
+                }
+            }
+        }
+    }
+
+    private var playerPane: some View {
         VStack(spacing: 0) {
             ZStack {
                 PlayerView(player: player)
                 if player.mediaTitle.isEmpty {
-                    Text("Open a video file (⌘O) or drop one here")
+                    Text("Pick a video from the sidebar, drop a file here, or press ⌘O")
                         .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding()
                 }
             }
             .frame(minWidth: 640, minHeight: 360)
@@ -73,6 +107,13 @@ struct ContentView: View {
             }
         }
         .padding(10)
+    }
+
+    private func autoConnect() {
+        guard let config = ShareStore.load(),
+              let password = ShareStore.password(for: config)
+        else { return }
+        streamer.start(config: config, password: password)
     }
 
     private func format(_ t: Double) -> String {
