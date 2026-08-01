@@ -57,29 +57,68 @@ struct CompatSlider: View {
     }
 }
 
-/// Poster/backdrop image that fades in when loaded, with a subtle gradient
-/// placeholder instead of a hard gray box.
+#if canImport(AppKit)
+import AppKit
+typealias PlatformImage = NSImage
+#else
+import UIKit
+typealias PlatformImage = UIImage
+#endif
+
+/// Poster/backdrop image that fades in when loaded, cached to disk so
+/// artwork is instant on relaunch and available offline.
 struct FadeInImage: View {
     let url: URL?
+    @State private var image: PlatformImage?
+
+    /// Generous shared cache for artwork (memory + disk).
+    static let cache: URLCache = URLCache(
+        memoryCapacity: 64 * 1024 * 1024,
+        diskCapacity: 512 * 1024 * 1024)
 
     var body: some View {
-        AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.3))) { phase in
-            switch phase {
-            case .success(let image):
-                image.resizable()
+        ZStack {
+            if let image {
+                #if canImport(AppKit)
+                Image(nsImage: image)
+                    .resizable()
                     .aspectRatio(contentMode: .fill)
                     .transition(.opacity)
-            default:
-                ZStack {
-                    LinearGradient(
-                        colors: [.white.opacity(0.04), .white.opacity(0.09)],
-                        startPoint: .topLeading, endPoint: .bottomTrailing)
-                    Image(systemName: "film")
-                        .font(.title2)
-                        .foregroundStyle(.white.opacity(0.2))
-                }
+                #else
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .transition(.opacity)
+                #endif
+            } else {
+                LinearGradient(
+                    colors: [.white.opacity(0.04), .white.opacity(0.09)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing)
+                Image(systemName: "film")
+                    .font(.title2)
+                    .foregroundStyle(.white.opacity(0.2))
             }
         }
+        .task(id: url) { await load() }
+    }
+
+    private func load() async {
+        guard let url else { return }
+        var request = URLRequest(url: url)
+        request.cachePolicy = .returnCacheDataElseLoad
+
+        // Serve straight from cache without a network round-trip when possible.
+        if let cached = Self.cache.cachedResponse(for: request),
+           let img = PlatformImage(data: cached.data) {
+            image = img
+            return
+        }
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let img = PlatformImage(data: data)
+        else { return }
+        Self.cache.storeCachedResponse(
+            CachedURLResponse(response: response, data: data), for: request)
+        withAnimation(.easeOut(duration: 0.25)) { image = img }
     }
 }
 
