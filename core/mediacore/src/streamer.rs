@@ -168,6 +168,8 @@ impl Streamer {
             .route("/plex/markers", get(plex_markers))
             .route("/plex/rate", get(plex_rate))
             .route("/plex/watched", get(plex_watched))
+            .route("/plex/login/start", get(plex_login_start))
+            .route("/plex/login/poll", get(plex_login_poll))
             .with_state(self.state);
         let listener =
             tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port))).await?;
@@ -415,6 +417,38 @@ async fn plex_watched(
     };
     let watched = q.get("watched").map(|w| w == "true").unwrap_or(true);
     Json(serde_json::json!({"ok": plex.set_watched(key, watched).await})).into_response()
+}
+
+async fn plex_login_start() -> Response {
+    match crate::plex::pin_create().await {
+        Some(pin) => Json(pin).into_response(),
+        None => (StatusCode::BAD_GATEWAY, "plex.tv unreachable").into_response(),
+    }
+}
+
+/// Poll the pin; once signed in, resolve the user's own server too so the
+/// client gets everything it needs in one payload.
+async fn plex_login_poll(Query(q): Query<HashMap<String, String>>) -> Response {
+    let Some(id) = q.get("id").and_then(|v| v.parse::<u64>().ok()) else {
+        return (StatusCode::BAD_REQUEST, "id required").into_response();
+    };
+    match crate::plex::pin_check(id).await {
+        None => Json(serde_json::json!({"pending": true})).into_response(),
+        Some(account_token) => match crate::plex::discover_server(&account_token).await {
+            Some(server) => Json(serde_json::json!({
+                "pending": false,
+                "server_name": server.name,
+                "server_url": server.url,
+                "token": server.token,
+            }))
+            .into_response(),
+            None => (
+                StatusCode::NOT_FOUND,
+                "signed in, but no owned Plex server was found on the account",
+            )
+                .into_response(),
+        },
+    }
 }
 
 async fn plex_users(State(st): State<AppState>) -> Response {

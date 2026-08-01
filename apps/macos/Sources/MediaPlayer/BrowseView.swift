@@ -230,7 +230,7 @@ struct BrowseView: View {
             #endif
         }
         .sheet(isPresented: $showSettings) {
-            SettingsView(onSaved: onReconnect)
+            SettingsView(onSaved: onReconnect, streamer: streamer)
         }
         .alert("PIN for \(pinPromptUser?.title ?? "")", isPresented: .init(
             get: { pinPromptUser != nil },

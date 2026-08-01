@@ -160,6 +160,107 @@ struct Part {
     key: String,
 }
 
+const CLIENT_ID: &str = "dev.mediaplayer.app";
+const PRODUCT: &str = "MediaPlayer";
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PlexPin {
+    pub id: u64,
+    pub code: String,
+    /// Open this in a browser; after login the pin resolves to a token.
+    pub auth_url: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PlexServerInfo {
+    pub name: String,
+    pub url: String,
+    pub token: String,
+}
+
+fn plex_headers(req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+    req.header("Accept", "application/json")
+        .header("X-Plex-Client-Identifier", CLIENT_ID)
+        .header("X-Plex-Product", PRODUCT)
+        .header("X-Plex-Version", "1.0")
+}
+
+/// Start the plex.tv PIN login flow.
+pub async fn pin_create() -> Option<PlexPin> {
+    #[derive(Deserialize)]
+    struct Pin {
+        id: u64,
+        code: String,
+    }
+    let client = reqwest::Client::new();
+    let resp = plex_headers(client.post("https://plex.tv/api/v2/pins?strong=true"))
+        .send()
+        .await
+        .ok()?;
+    let pin = resp.json::<Pin>().await.ok()?;
+    let auth_url = format!(
+        "https://app.plex.tv/auth#?clientID={CLIENT_ID}&code={}&context%5Bdevice%5D%5Bproduct%5D={PRODUCT}",
+        pin.code
+    );
+    Some(PlexPin { id: pin.id, code: pin.code, auth_url })
+}
+
+/// Poll a pin; returns the account token once the user has signed in.
+pub async fn pin_check(id: u64) -> Option<String> {
+    #[derive(Deserialize)]
+    struct Pin {
+        #[serde(rename = "authToken")]
+        auth_token: Option<String>,
+    }
+    let client = reqwest::Client::new();
+    let resp = plex_headers(client.get(format!("https://plex.tv/api/v2/pins/{id}")))
+        .send()
+        .await
+        .ok()?;
+    resp.json::<Pin>().await.ok()?.auth_token
+}
+
+/// Find the account's own media server and its access token.
+/// Prefers a local (LAN) connection.
+pub async fn discover_server(account_token: &str) -> Option<PlexServerInfo> {
+    #[derive(Deserialize)]
+    struct Conn {
+        uri: String,
+        local: bool,
+        protocol: String,
+    }
+    #[derive(Deserialize)]
+    struct Resource {
+        name: String,
+        provides: String,
+        owned: bool,
+        #[serde(rename = "accessToken")]
+        access_token: Option<String>,
+        #[serde(default)]
+        connections: Vec<Conn>,
+    }
+    let client = reqwest::Client::new();
+    let resp = plex_headers(client.get(format!(
+        "https://plex.tv/api/v2/resources?includeHttps=1&X-Plex-Token={account_token}"
+    )))
+    .send()
+    .await
+    .ok()?;
+    let resources = resp.json::<Vec<Resource>>().await.ok()?;
+    let server = resources
+        .into_iter()
+        .filter(|r| r.provides.contains("server"))
+        .max_by_key(|r| r.owned)?;
+    let token = server.access_token?;
+    let conn = server
+        .connections
+        .iter()
+        .find(|c| c.local && c.protocol == "http")
+        .or_else(|| server.connections.iter().find(|c| c.local))
+        .or_else(|| server.connections.first())?;
+    Some(PlexServerInfo { name: server.name, url: conn.uri.clone(), token })
+}
+
 impl PlexSource {
     pub fn new(base: String, token: String) -> Self {
         Self {

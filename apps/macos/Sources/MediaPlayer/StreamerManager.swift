@@ -227,6 +227,35 @@ final class StreamerManager: ObservableObject {
     /// iOS/tvOS hook: restart the in-process streamer after a user switch.
     var onUserSwitched: (() -> Void)?
 
+    struct PlexPin: Codable {
+        let id: UInt64
+        let code: String
+        let auth_url: String
+    }
+
+    struct PlexLoginResult: Codable {
+        let pending: Bool
+        let server_name: String?
+        let server_url: String?
+        let token: String?
+    }
+
+    func plexLoginStart() async -> PlexPin? {
+        guard let baseURL else { return nil }
+        guard let (data, _) = try? await URLSession.shared.data(
+            from: baseURL.appendingPathComponent("plex/login/start")) else { return nil }
+        return try? JSONDecoder().decode(PlexPin.self, from: data)
+    }
+
+    func plexLoginPoll(id: UInt64) async -> PlexLoginResult? {
+        guard let baseURL else { return nil }
+        var comps = URLComponents(url: baseURL.appendingPathComponent("plex/login/poll"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "id", value: String(id))]
+        guard let (data, resp) = try? await URLSession.shared.data(from: comps.url!),
+              (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        return try? JSONDecoder().decode(PlexLoginResult.self, from: data)
+    }
+
     struct PlexMarker: Codable, Hashable {
         let kind: String     // "intro" | "credits" | "commercial"
         let start_secs: Double
