@@ -52,7 +52,9 @@ struct BrowserView: View {
             List(entries) { entry in
                 row(entry)
             }
+            #if !os(tvOS)
             .listStyle(.sidebar)
+            #endif
         }
     }
 

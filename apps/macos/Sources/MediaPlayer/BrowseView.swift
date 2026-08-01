@@ -2,6 +2,54 @@ import SwiftUI
 
 let canvasColor = Color(red: 0.078, green: 0.078, blue: 0.086)
 
+#if os(macOS)
+let edgePad: CGFloat = 48
+#else
+let edgePad: CGFloat = 20
+#endif
+
+extension View {
+    /// `.onHover` shim — tvOS has no pointer; focus effects come for free.
+    @ViewBuilder
+    func onHoverCompat(_ action: @escaping (Bool) -> Void) -> some View {
+        #if os(tvOS)
+        self
+        #else
+        self.onHover(perform: action)
+        #endif
+    }
+}
+
+/// Slider that degrades to −/+ buttons on tvOS (which has no Slider).
+struct CompatSlider: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    var onEdit: () -> Void = {}
+
+    var body: some View {
+        #if os(tvOS)
+        HStack(spacing: 8) {
+            Button { bump(-step) } label: { Image(systemName: "minus") }
+            ProgressView(value: fraction)
+            Button { bump(step) } label: { Image(systemName: "plus") }
+        }
+        #else
+        Slider(value: $value, in: range) { _ in onEdit() }
+        #endif
+    }
+
+    private var step: Double { (range.upperBound - range.lowerBound) / 20 }
+    private var fraction: Double {
+        let span = range.upperBound - range.lowerBound
+        return span > 0 ? (value - range.lowerBound) / span : 0
+    }
+
+    private func bump(_ delta: Double) {
+        value = min(max(value + delta, range.lowerBound), range.upperBound)
+        onEdit()
+    }
+}
+
 /// Netflix-style home: fixed top nav, cinematic hero, carousels.
 struct BrowseView: View {
     @ObservedObject var streamer: StreamerManager
@@ -89,11 +137,12 @@ struct BrowseView: View {
     // MARK: - Navigation bar
 
     private var navBar: some View {
-        HStack(spacing: 22) {
-            Text("MEDIAPLAYER")
-                .font(.system(size: 17, weight: .black))
+        HStack(spacing: edgePad > 30 ? 22 : 12) {
+            Text(edgePad > 30 ? "MEDIAPLAYER" : "M")
+                .font(.system(size: edgePad > 30 ? 17 : 22, weight: .black))
                 .foregroundStyle(Color(red: 0.9, green: 0.15, blue: 0.13))
                 .kerning(1.5)
+                .fixedSize()
 
             ForEach(Tab.allCases, id: \.self) { t in
                 Button(t.rawValue) {
@@ -102,6 +151,7 @@ struct BrowseView: View {
                 .buttonStyle(.plain)
                 .font(.system(size: 13.5, weight: tab == t ? .bold : .regular))
                 .foregroundStyle(tab == t ? .white : .white.opacity(0.65))
+                .fixedSize()
             }
 
             Spacer()
@@ -121,10 +171,16 @@ struct BrowseView: View {
                         }
                     }
                 } label: {
+                    #if os(macOS)
                     Label(activeUserName.isEmpty ? "User" : activeUserName,
                           systemImage: "person.crop.circle.fill")
+                    #else
+                    Image(systemName: "person.crop.circle.fill")
+                    #endif
                 }
+                #if os(macOS)
                 .menuStyle(.borderlessButton)
+                #endif
                 .fixedSize()
             }
             Button { Task { await rescan() } } label: {
@@ -140,7 +196,7 @@ struct BrowseView: View {
         }
         .font(.system(size: 14))
         .foregroundStyle(.white.opacity(0.85))
-        .padding(.horizontal, 48)
+        .padding(.horizontal, edgePad)
         .padding(.vertical, 14)
         .background(
             LinearGradient(colors: [.black.opacity(0.75), .clear], startPoint: .top, endPoint: .bottom)
@@ -256,7 +312,7 @@ struct BrowseView: View {
                     }
                     .padding(.top, 4)
                 }
-                .padding(.horizontal, 48)
+                .padding(.horizontal, edgePad)
                 .padding(.bottom, 26)
             }
         }
@@ -340,7 +396,7 @@ struct BrowseView: View {
                         ContinueCard(item: item) { tapped(item) }
                     }
                 }
-                .padding(.horizontal, 48)
+                .padding(.horizontal, edgePad)
                 .padding(.vertical, 8)
             }
         }
@@ -358,7 +414,7 @@ struct BrowseView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 48)
+                .padding(.horizontal, edgePad)
                 .padding(.vertical, 10)
             }
         }
@@ -375,7 +431,7 @@ struct BrowseView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 48)
+                .padding(.horizontal, edgePad)
                 .padding(.vertical, 10)
             }
         }
@@ -389,7 +445,7 @@ struct BrowseView: View {
                 }
             }
         }
-        .padding(.horizontal, 48)
+        .padding(.horizontal, edgePad)
         .padding(.top, 70)
     }
 
@@ -401,14 +457,14 @@ struct BrowseView: View {
                 }
             }
         }
-        .padding(.horizontal, 48)
+        .padding(.horizontal, edgePad)
         .padding(.top, 70)
     }
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
             .font(.system(size: 21, weight: .bold))
-            .padding(.horizontal, 48)
+            .padding(.horizontal, edgePad)
     }
 
     private var emptyState: some View {
@@ -536,7 +592,7 @@ struct PosterCard: View {
             .animation(.spring(duration: 0.22), value: hovering)
         }
         .buttonStyle(.plain)
-        .onHover { hovering = $0 }
+        .onHoverCompat { hovering = $0 }
     }
 
     private func progressBar(_ fraction: Double) -> some View {
@@ -609,7 +665,7 @@ struct ContinueCard: View {
             .animation(.spring(duration: 0.22), value: hovering)
         }
         .buttonStyle(.plain)
-        .onHover { hovering = $0 }
+        .onHoverCompat { hovering = $0 }
     }
 }
 

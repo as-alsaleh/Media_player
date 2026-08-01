@@ -15,6 +15,12 @@ targets:
     sources:
       - Sources
       - path: ../macos/Sources/MediaPlayer/MPVPlayer.swift
+      - path: ../macos/Sources/MediaPlayer/StreamerManager.swift
+      - path: ../macos/Sources/MediaPlayer/BrowseView.swift
+      - path: ../macos/Sources/MediaPlayer/BrowserView.swift
+      - path: ../macos/Sources/MediaPlayer/WatchProgress.swift
+      - path: ../macos/Sources/MediaPlayer/ShareStore.swift
+      - path: ../macos/Sources/MediaPlayer/PlayerSettingsView.swift
       - path: ../../build/mediacore/bindings/mediacore.swift
     dependencies:
       - package: MPVKit
@@ -37,6 +43,12 @@ targets:
     sources:
       - Sources
       - path: ../macos/Sources/MediaPlayer/MPVPlayer.swift
+      - path: ../macos/Sources/MediaPlayer/StreamerManager.swift
+      - path: ../macos/Sources/MediaPlayer/BrowseView.swift
+      - path: ../macos/Sources/MediaPlayer/BrowserView.swift
+      - path: ../macos/Sources/MediaPlayer/WatchProgress.swift
+      - path: ../macos/Sources/MediaPlayer/ShareStore.swift
+      - path: ../macos/Sources/MediaPlayer/PlayerSettingsView.swift
       - path: ../../build/mediacore/bindings/mediacore.swift
     dependencies:
       - package: MPVKit

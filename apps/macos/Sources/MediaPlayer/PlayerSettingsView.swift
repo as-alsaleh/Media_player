@@ -58,7 +58,9 @@ struct PlayerSettingsView: View {
             }
             .padding(16)
         }
+        #if os(macOS)
         .frame(width: 320, height: 440)
+        #endif
         .onAppear {
             tracks = player.tracks()
             volume = player.getDouble("volume")
@@ -135,8 +137,7 @@ struct PlayerSettingsView: View {
                     .monospacedDigit()
             }
             .font(.system(size: 12.5))
-            Slider(value: value, in: range) { _ in onChange() }
-                .controlSize(.small)
+            CompatSlider(value: value, range: range, onEdit: onChange)
         }
     }
 

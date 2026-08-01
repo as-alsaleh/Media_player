@@ -7,13 +7,21 @@ struct RemoteEntry: Codable, Identifiable, Hashable {
     var id: String { name }
 }
 
-/// Launches the bundled `mediacored` helper for a share and talks to its
-/// localhost HTTP endpoints (/list, /stream).
+/// Fronts the mediacore streamer's localhost HTTP API.
+/// On macOS it launches the bundled `mediacored` helper; on iOS/tvOS the
+/// streamer runs in-process (UniFFI) and its URL is adopted via `adopt`.
 @MainActor
 final class StreamerManager: ObservableObject {
     @Published private(set) var baseURL: URL?
     @Published private(set) var lastError: String?
 
+    /// iOS/tvOS: point at the in-process streamer.
+    func adopt(baseURL url: URL?, error: String? = nil) {
+        baseURL = url
+        lastError = error
+    }
+
+    #if os(macOS)
     private var process: Process?
 
     static var helperURL: URL {
@@ -95,6 +103,7 @@ final class StreamerManager: ObservableObject {
         process = nil
         baseURL = nil
     }
+    #endif
 
     func list(path: String) async throws -> [RemoteEntry] {
         guard let baseURL else { throw URLError(.cannotConnectToHost) }
@@ -173,11 +182,18 @@ final class StreamerManager: ObservableObject {
         else { return false }
 
         UserDefaults.standard.set(token, forKey: "plexActiveToken")
+        #if os(macOS)
         if let config = ShareStore.load(), let password = ShareStore.password(for: config) {
             start(config: config, password: password)
         }
+        #else
+        onUserSwitched?()
+        #endif
         return true
     }
+
+    /// iOS/tvOS hook: restart the in-process streamer after a user switch.
+    var onUserSwitched: (() -> Void)?
 
     struct PlexMarker: Codable, Hashable {
         let kind: String     // "intro" | "credits" | "commercial"

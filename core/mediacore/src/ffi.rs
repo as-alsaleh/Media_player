@@ -30,6 +30,9 @@ pub fn start_streamer(
     password: String,
     db_path: Option<String>,
     tmdb_api_key: Option<String>,
+    plex_url: Option<String>,
+    plex_token: Option<String>,
+    plex_admin_token: Option<String>,
 ) -> Result<String, CoreError> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -47,6 +50,18 @@ pub fn start_streamer(
             streamer = streamer.with_index(index);
         }
         streamer = streamer.with_tmdb_key(tmdb_api_key.clone());
+        if let (Some(url), Some(token)) = (&plex_url, &plex_token) {
+            streamer = streamer.with_plex(Some(
+                crate::plex::PlexSource::new(url.clone(), token.clone())
+                    .with_media_token(plex_admin_token.clone()),
+            ));
+            if let Some(admin) = &plex_admin_token {
+                streamer = streamer.with_plex_admin(Some(crate::plex::PlexSource::new(
+                    url.clone(),
+                    admin.clone(),
+                )));
+            }
+        }
         streamer
             .serve(0)
             .await

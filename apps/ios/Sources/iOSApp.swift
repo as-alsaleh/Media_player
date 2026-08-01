@@ -10,244 +10,303 @@ struct MediaPlayerApp: App {
 }
 
 struct RootView: View {
-    @StateObject private var core = CoreClient()
+    @StateObject private var streamer = StreamerManager()
     @StateObject private var player = MPVPlayer()
-    @State private var showingPlayer = false
-    @State private var nowPlaying = ""
 
-    var body: some View {
-        NavigationStack {
-            if core.baseURL == nil {
-                ConnectView(core: core)
-            } else {
-                LibraryListView(core: core) { url, name in
-                    nowPlaying = name
-                    showingPlayer = true
-                    player.load(url: url)
-                }
-            }
-        }
-        .fullScreenCover(isPresented: $showingPlayer) {
-            PlayerScreen(player: player, title: nowPlaying) {
-                player.togglePauseIfPlaying()
-                showingPlayer = false
-            }
-        }
-    }
-}
-
-private extension MPVPlayer {
-    func togglePauseIfPlaying() {
-        if !isPaused { togglePause() }
-    }
-}
-
-struct ConnectView: View {
-    @ObservedObject var core: CoreClient
     @AppStorage("server") private var server = ""
     @AppStorage("share") private var share = ""
     @AppStorage("username") private var username = ""
-    // Dev convenience: prefill via `simctl launch --setenv MEDIAPLAYER_PASSWORD=…`
-    @State private var password = ProcessInfo.processInfo.environment["MEDIAPLAYER_PASSWORD"] ?? ""
+    @AppStorage("smbPassword") private var storedPassword = ""
+
+    @State private var showPlayer = false
+    @State private var nowPlaying = ""
+    @State private var nowPlayingPath: String?
+    @State private var pendingResume: Double?
+    @State private var refreshTick = 0
+    @State private var markers: [StreamerManager.PlexMarker] = []
     @State private var connecting = false
 
+    private let progressTimer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
+
     var body: some View {
-        Form {
-            Section("SMB Share") {
-                TextField("Server", text: $server)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                TextField("Share", text: $share)
-                    .textInputAutocapitalization(.never)
-                TextField("Username", text: $username)
-                    .textInputAutocapitalization(.never)
-                SecureField("Password", text: $password)
-            }
-            Button(connecting ? "Connecting…" : "Connect") {
-                connecting = true
-                core.connect(server: server, share: share, username: username, password: password)
-            }
-            .disabled(connecting || server.isEmpty || share.isEmpty)
-            if let err = core.lastError {
-                Text(err).foregroundStyle(.red).font(.caption)
+        Group {
+            if streamer.baseURL != nil {
+                BrowseView(streamer: streamer, refreshTick: refreshTick, onPlay: startPlayback)
+            } else {
+                connectForm
             }
         }
-        .navigationTitle("MediaPlayer")
-        .onChange(of: core.lastError) { connecting = false }
+        .fullScreenCover(isPresented: $showPlayer) {
+            PlayerScreen(
+                player: player,
+                streamer: streamer,
+                title: nowPlaying,
+                markers: markers,
+                onClose: {
+                    if !player.isPaused { player.togglePause() }
+                    saveProgress()
+                    showPlayer = false
+                    refreshTick += 1
+                })
+        }
         .onAppear {
-            // Auto-connect when everything needed is already known.
-            if !connecting, !server.isEmpty, !share.isEmpty, !username.isEmpty, !password.isEmpty {
-                connecting = true
-                core.connect(server: server, share: share, username: username, password: password)
+            streamer.onUserSwitched = { startCore() }
+            if !server.isEmpty, !share.isEmpty, !password.isEmpty {
+                startCore()
             }
+        }
+        .onReceive(progressTimer) { _ in saveProgress() }
+        .preferredColorScheme(.dark)
+    }
+
+    private var password: String {
+        ProcessInfo.processInfo.environment["MEDIAPLAYER_PASSWORD"] ?? storedPassword
+    }
+
+    private var connectForm: some View {
+        NavigationStack {
+            Form {
+                Section("SMB Share") {
+                    TextField("Server", text: $server)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("Share", text: $share)
+                        .textInputAutocapitalization(.never)
+                    TextField("Username", text: $username)
+                        .textInputAutocapitalization(.never)
+                    SecureField("Password", text: $storedPassword)
+                }
+                Button(connecting ? "Connecting…" : "Connect") {
+                    startCore()
+                }
+                .disabled(connecting || server.isEmpty || share.isEmpty)
+                if let err = streamer.lastError {
+                    Text(err).foregroundStyle(.red).font(.caption)
+                }
+            }
+            .navigationTitle("MediaPlayer")
+        }
+    }
+
+    private func startCore() {
+        connecting = true
+        let db = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("library.sqlite")
+        try? FileManager.default.createDirectory(
+            at: db.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        let defaults = UserDefaults.standard
+        let plexURL = defaults.string(forKey: "plexServerURL")
+            ?? ProcessInfo.processInfo.environment["MEDIAPLAYER_PLEX_URL"]
+        let adminToken = defaults.string(forKey: "plexToken")
+            ?? ProcessInfo.processInfo.environment["MEDIAPLAYER_PLEX_TOKEN"]
+        let activeToken = defaults.string(forKey: "plexActiveToken") ?? adminToken
+        let tmdb = defaults.string(forKey: "tmdbApiKey")
+            ?? ProcessInfo.processInfo.environment["MEDIAPLAYER_TMDB_KEY"]
+        let (server, share, username, password) = (server, share, username, password)
+
+        Task.detached(priority: .userInitiated) {
+            do {
+                let url = try startStreamer(
+                    server: server, share: share, username: username,
+                    password: password, dbPath: db.path, tmdbApiKey: tmdb,
+                    plexUrl: plexURL, plexToken: activeToken, plexAdminToken: adminToken)
+                await MainActor.run {
+                    streamer.adopt(baseURL: URL(string: url))
+                    connecting = false
+                }
+            } catch {
+                await MainActor.run {
+                    streamer.adopt(baseURL: nil, error: String(describing: error))
+                    connecting = false
+                }
+            }
+        }
+    }
+
+    private func startPlayback(url: URL, title: String, path: String, resume: Double?) {
+        saveProgress()
+        nowPlaying = title
+        nowPlayingPath = path
+        pendingResume = resume
+        showPlayer = true
+        player.load(url: url)
+
+        markers = []
+        if path.hasPrefix("plex:") {
+            let key = String(path.dropFirst("plex:".count))
+            Task { markers = await streamer.plexMarkers(ratingKey: key) }
+        }
+    }
+
+    private func saveProgress() {
+        guard let path = nowPlayingPath, player.duration > 0 else { return }
+        WatchProgress.save(path: path, position: player.timePos, duration: player.duration)
+        if path.hasPrefix("plex:") {
+            streamer.reportPlexProgress(
+                ratingKey: String(path.dropFirst("plex:".count)),
+                time: player.timePos,
+                duration: player.duration,
+                state: player.isPaused ? "paused" : "playing")
         }
     }
 }
 
-struct LibraryListView: View {
-    @ObservedObject var core: CoreClient
-    let onPlay: (URL, String) -> Void
-
-    @State private var movies: [CoreClient.LibraryMovie] = []
-    @State private var episodes: [CoreClient.LibraryEpisode] = []
-    @State private var scanning = false
-
-    var body: some View {
-        List {
-            if !movies.isEmpty {
-                Section("Movies") {
-                    ForEach(movies) { movie in
-                        Button {
-                            if let url = core.streamURL(path: movie.path) {
-                                onPlay(url, movie.title)
-                            }
-                        } label: {
-                            HStack {
-                                Text(movie.title)
-                                Spacer()
-                                if let year = movie.year {
-                                    Text(String(year)).foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        .tint(.primary)
-                    }
-                }
-            }
-            if !episodes.isEmpty {
-                Section("TV") {
-                    ForEach(groupedShows, id: \.0) { show, eps in
-                        NavigationLink("\(show) (\(eps.count))") {
-                            EpisodeListView(show: show, episodes: eps, core: core, onPlay: onPlay)
-                        }
-                    }
-                }
-            }
-        }
-        .navigationTitle("Library")
-        .toolbar {
-            Button {
-                Task {
-                    scanning = true
-                    _ = try? await core.scanLibrary()
-                    await load()
-                    scanning = false
-                }
-            } label: {
-                if scanning { ProgressView() } else { Image(systemName: "arrow.clockwise") }
-            }
-        }
-        .task { await load() }
-        .overlay {
-            if movies.isEmpty && episodes.isEmpty && !scanning {
-                ContentUnavailableView(
-                    "Empty library", systemImage: "film.stack",
-                    description: Text("Tap ⟳ to scan the share"))
-            }
-        }
-    }
-
-    private var groupedShows: [(String, [CoreClient.LibraryEpisode])] {
-        Dictionary(grouping: episodes, by: \.show)
-            .sorted { $0.key.localizedCaseInsensitiveCompare($1.key) == .orderedAscending }
-    }
-
-    private func load() async {
-        movies = (try? await core.libraryMovies()) ?? []
-        episodes = (try? await core.libraryEpisodes()) ?? []
-    }
-}
-
-struct EpisodeListView: View {
-    let show: String
-    let episodes: [CoreClient.LibraryEpisode]
-    @ObservedObject var core: CoreClient
-    let onPlay: (URL, String) -> Void
-
-    var body: some View {
-        List(episodes) { ep in
-            Button(String(format: "S%02dE%02d", ep.season, ep.episode)) {
-                if let url = core.streamURL(path: ep.path) {
-                    onPlay(url, "\(show) S\(ep.season)E\(ep.episode)")
-                }
-            }
-            .tint(.primary)
-        }
-        .navigationTitle(show)
-    }
-}
-
+/// Fullscreen touch player: tap to toggle controls, gear opens settings.
 struct PlayerScreen: View {
     @ObservedObject var player: MPVPlayer
+    @ObservedObject var streamer: StreamerManager
     let title: String
+    let markers: [StreamerManager.PlexMarker]
     let onClose: () -> Void
 
+    @State private var controlsVisible = true
+    @State private var showSettings = false
+    @State private var hideWork: DispatchWorkItem?
+
+    private var activeMarker: StreamerManager.PlexMarker? {
+        markers.first {
+            player.timePos >= $0.start_secs && player.timePos < $0.end_secs - 1
+        }
+    }
+
+    private func skipLabel(_ kind: String) -> String {
+        switch kind {
+        case "intro": return "Skip Intro"
+        case "commercial": return "Skip Ad"
+        case "credits": return "Skip Credits"
+        default: return "Skip"
+        }
+    }
+
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            PlayerView(player: player)
-                .ignoresSafeArea()
-            VStack {
-                HStack {
-                    Button(action: onClose) {
-                        Image(systemName: "xmark.circle.fill").font(.title)
-                    }
-                    .tint(.white.opacity(0.8))
-                    Text(title).foregroundStyle(.white.opacity(0.8)).lineLimit(1)
+        ZStack {
+            Color.black.ignoresSafeArea()
+            PlayerView(player: player).ignoresSafeArea()
+
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation { controlsVisible.toggle() }
+                    if controlsVisible { scheduleHide() }
+                }
+
+            if let marker = activeMarker {
+                VStack {
                     Spacer()
-                    if !player.hwdecCurrent.isEmpty {
-                        Text(player.hwdecCurrent)
-                            .font(.caption2)
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(.green.opacity(0.3), in: Capsule())
-                            .foregroundStyle(.white)
+                    HStack {
+                        Spacer()
+                        Button {
+                            player.seek(to: marker.end_secs)
+                        } label: {
+                            Text(skipLabel(marker.kind))
+                                .font(.system(size: 15, weight: .bold))
+                                .padding(.horizontal, 22).padding(.vertical, 11)
+                                .background(.white, in: RoundedRectangle(cornerRadius: 6))
+                                .foregroundStyle(.black)
+                        }
+                        .padding(.trailing, 24)
+                        .padding(.bottom, controlsVisible ? 130 : 40)
                     }
                 }
-                .padding()
-                Spacer()
-                controls
+            }
+
+            if controlsVisible {
+                VStack {
+                    HStack(spacing: 12) {
+                        Button(action: onClose) {
+                            Image(systemName: "chevron.backward")
+                                .font(.system(size: 16, weight: .bold))
+                                .frame(width: 36, height: 36)
+                                .background(.white.opacity(0.15), in: Circle())
+                        }
+                        Text(title).font(.headline).lineLimit(1)
+                        Spacer()
+                        Button {
+                            showSettings = true
+                        } label: {
+                            Image(systemName: "gearshape.fill")
+                                .font(.system(size: 15))
+                                .frame(width: 36, height: 36)
+                                .background(.white.opacity(0.15), in: Circle())
+                        }
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 8)
+                    .background(
+                        LinearGradient(colors: [.black.opacity(0.6), .clear],
+                                       startPoint: .top, endPoint: .bottom))
+                    Spacer()
+
+                    VStack(spacing: 12) {
+                        HStack(spacing: 10) {
+                            Text(format(player.timePos))
+                            CompatSlider(
+                                value: Binding(
+                                    get: { player.timePos },
+                                    set: { player.seek(to: $0) }),
+                                range: 0...max(player.duration, 1))
+                                .tint(Color(red: 0.9, green: 0.15, blue: 0.13))
+                            Text(format(player.duration))
+                        }
+                        .font(.system(size: 12).monospacedDigit())
+                        .foregroundStyle(.white)
+
+                        HStack(spacing: 40) {
+                            Button { player.seek(to: max(player.timePos - 15, 0)) } label: {
+                                Image(systemName: "gobackward.15").font(.system(size: 24))
+                            }
+                            Button { player.togglePause() } label: {
+                                Image(systemName: player.isPaused ? "play.fill" : "pause.fill")
+                                    .font(.system(size: 30))
+                                    .frame(width: 60, height: 60)
+                                    .background(.white.opacity(0.15), in: Circle())
+                            }
+                            Button { player.seek(to: player.timePos + 30) } label: {
+                                Image(systemName: "goforward.30").font(.system(size: 24))
+                            }
+                        }
+                        .foregroundStyle(.white)
+                    }
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 14)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+                }
             }
         }
-        .background(.black)
-    }
-
-    private var controls: some View {
-        HStack(spacing: 16) {
-            Button(action: { player.seek(to: max(player.timePos - 15, 0)) }) {
-                Image(systemName: "gobackward.15")
-            }
-            .tint(.white)
-            Button(action: { player.togglePause() }) {
-                Image(systemName: player.isPaused ? "play.fill" : "pause.fill")
-            }
-            .tint(.white)
-            Button(action: { player.seek(to: player.timePos + 30) }) {
-                Image(systemName: "goforward.30")
-            }
-            .tint(.white)
-            #if !os(tvOS)
-            Slider(
-                value: Binding(get: { player.timePos }, set: { player.seek(to: $0) }),
-                in: 0...max(player.duration, 1))
+        #if os(iOS)
+        .statusBarHidden(true)
+        #endif
+        .sheet(isPresented: $showSettings) {
+            #if os(iOS)
+            PlayerSettingsView(player: player)
+                .presentationDetents([.medium, .large])
             #else
-            ProgressView(value: min(player.timePos, player.duration), total: max(player.duration, 1))
-                .tint(.white)
+            PlayerSettingsView(player: player)
             #endif
-            Text(timeString)
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.white)
         }
-        .padding()
-        .background(.black.opacity(0.5))
+        .onAppear(perform: scheduleHide)
     }
 
-    private var timeString: String {
-        func fmt(_ t: Double) -> String {
-            guard t.isFinite, t > 0 else { return "0:00" }
-            let s = Int(t)
-            return s >= 3600
-                ? String(format: "%d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
-                : String(format: "%d:%02d", s / 60, s % 60)
+    private func scheduleHide() {
+        hideWork?.cancel()
+        let work = DispatchWorkItem {
+            if !player.isPaused {
+                withAnimation { controlsVisible = false }
+            }
         }
-        return "\(fmt(player.timePos)) / \(fmt(player.duration))"
+        hideWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: work)
+    }
+
+    private func format(_ t: Double) -> String {
+        guard t.isFinite, t > 0 else { return "0:00" }
+        let s = Int(t)
+        return s >= 3600
+            ? String(format: "%d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
+            : String(format: "%d:%02d", s / 60, s % 60)
     }
 }
