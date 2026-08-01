@@ -1,7 +1,9 @@
 import Foundation
-import AppKit
 import QuartzCore
 import Libmpv
+#if os(macOS)
+import AppKit
+#endif
 
 /// Thin Swift wrapper around a libmpv handle rendering into a CAMetalLayer.
 ///

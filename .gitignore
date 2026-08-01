@@ -15,3 +15,4 @@ Cargo.lock.bak
 # Build artifacts
 build/
 *.xcframework
+apps/ios/MediaPlayeriOS.xcodeproj/

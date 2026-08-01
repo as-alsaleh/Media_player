@@ -1,0 +1,32 @@
+name: MediaPlayeriOS
+options:
+  bundleIdPrefix: dev.mediaplayer
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  MPVKit:
+    url: https://github.com/mpvkit/MPVKit.git
+    from: 0.39.0
+targets:
+  MediaPlayeriOS:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+      - path: ../macos/Sources/MediaPlayer/MPVPlayer.swift
+      - path: ../../build/mediacore/bindings/mediacore.swift
+    dependencies:
+      - package: MPVKit
+        product: MPVKit-GPL
+      - framework: ../../build/mediacore/Mediacore.xcframework
+        embed: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.mediaplayer.ios
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Connects to your media server on the local network."
+        SWIFT_VERSION: "5.9"
+        CODE_SIGNING_ALLOWED: "NO"
+        LIBRARY_SEARCH_PATHS: "$(inherited)"
