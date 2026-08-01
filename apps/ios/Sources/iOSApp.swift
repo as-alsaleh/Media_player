@@ -239,7 +239,7 @@ struct PlayerScreen: View {
                         ZStack(alignment: .leading) {
                             Rectangle().fill(.white.opacity(0.15))
                             Rectangle()
-                                .fill(Color(red: 0.9, green: 0.15, blue: 0.13))
+                                .fill(accentGradient)
                                 .frame(width: geo.size.width * min(player.timePos / player.duration, 1))
                         }
                     }
@@ -284,7 +284,7 @@ struct PlayerScreen: View {
                                     get: { player.timePos },
                                     set: { player.seek(to: $0) }),
                                 range: 0...max(player.duration, 1))
-                                .tint(Color(red: 0.9, green: 0.15, blue: 0.13))
+                                .tint(accentA)
                             Text(format(player.duration))
                         }
                         .font(.system(size: 12).monospacedDigit())

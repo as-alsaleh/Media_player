@@ -1,6 +1,10 @@
 import SwiftUI
 
-let canvasColor = Color(red: 0.078, green: 0.078, blue: 0.086)
+let canvasColor = Color(red: 0.055, green: 0.065, blue: 0.10)
+let accentA = Color(red: 0.42, green: 0.45, blue: 1.0)     // indigo
+let accentB = Color(red: 0.25, green: 0.85, blue: 0.90)    // cyan
+let accentGradient = LinearGradient(
+    colors: [accentA, accentB], startPoint: .leading, endPoint: .trailing)
 
 #if os(macOS)
 let edgePad: CGFloat = 48
@@ -49,8 +53,6 @@ struct CompatSlider: View {
         onEdit()
     }
 }
-
-let accentRed = Color(red: 0.9, green: 0.15, blue: 0.13)
 
 /// Poster/backdrop image that fades in when loaded, with a subtle gradient
 /// placeholder instead of a hard gray box.
@@ -194,29 +196,29 @@ struct BrowseView: View {
 
     private var navBar: some View {
         HStack(spacing: edgePad > 30 ? 22 : 12) {
-            Text(edgePad > 30 ? "MEDIAPLAYER" : "M")
-                .font(.system(size: edgePad > 30 ? 17 : 22, weight: .black))
-                .foregroundStyle(Color(red: 0.9, green: 0.15, blue: 0.13))
-                .kerning(1.5)
+            Text(edgePad > 30 ? "mediaplayer" : "mp")
+                .font(.system(size: edgePad > 30 ? 19 : 22, weight: .heavy, design: .rounded))
+                .foregroundStyle(accentGradient)
                 .fixedSize()
 
-            ForEach(Tab.allCases, id: \.self) { t in
-                Button {
-                    withAnimation(.easeOut(duration: 0.2)) { tab = t }
-                } label: {
-                    VStack(spacing: 3) {
+            HStack(spacing: 2) {
+                ForEach(Tab.allCases, id: \.self) { t in
+                    Button {
+                        withAnimation(.easeOut(duration: 0.2)) { tab = t }
+                    } label: {
                         Text(t.rawValue)
-                        Capsule()
-                            .fill(accentRed)
-                            .frame(height: 2.5)
-                            .opacity(tab == t ? 1 : 0)
+                            .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                            .padding(.horizontal, 14).padding(.vertical, 7)
+                            .background(
+                                Capsule().fill(accentGradient).opacity(tab == t ? 1 : 0))
+                            .foregroundStyle(tab == t ? .white : .white.opacity(0.65))
                     }
+                    .buttonStyle(.plain)
+                    .fixedSize()
                 }
-                .buttonStyle(.plain)
-                .font(.system(size: 13.5, weight: tab == t ? .bold : .semibold))
-                .foregroundStyle(tab == t ? .white : .white.opacity(0.6))
-                .fixedSize()
             }
+            .padding(3)
+            .background(.white.opacity(0.07), in: Capsule())
 
             Spacer()
 
@@ -330,10 +332,10 @@ struct BrowseView: View {
             ZStack(alignment: .bottomLeading) {
                 GeometryReader { geo in
                     FadeInImage(url: movie.backdrop_url.flatMap(URL.init))
-                    .frame(width: geo.size.width, height: 480)
+                    .frame(width: geo.size.width, height: 460)
                     .clipped()
                 }
-                .frame(height: 480)
+                .frame(height: 460)
 
                 LinearGradient(
                     stops: [
@@ -349,7 +351,7 @@ struct BrowseView: View {
 
                 VStack(alignment: .leading, spacing: 14) {
                     Text(movie.title)
-                        .font(.system(size: 54, weight: .black))
+                        .font(.system(size: 50, weight: .black, design: .rounded))
                         .shadow(color: .black.opacity(0.8), radius: 10)
                     HStack(spacing: 8) {
                         if let year = movie.year { Chip(text: String(year)) }
@@ -371,28 +373,34 @@ struct BrowseView: View {
                         } label: {
                             Label(movie.view_offset_secs != nil ? "Resume" : "Play",
                                   systemImage: "play.fill")
-                                .font(.system(size: 15, weight: .bold))
-                                .padding(.horizontal, 28).padding(.vertical, 11)
-                                .background(.white, in: RoundedRectangle(cornerRadius: 5))
-                                .foregroundStyle(.black)
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
+                                .padding(.horizontal, 30).padding(.vertical, 12)
+                                .background(accentGradient, in: Capsule())
+                                .foregroundStyle(.white)
+                                .shadow(color: accentA.opacity(0.5), radius: 12, y: 4)
                         }
                         .buttonStyle(.plain)
                         Button {
                             selectedMovie = movie
                         } label: {
                             Label("More Info", systemImage: "info.circle")
-                                .font(.system(size: 15, weight: .semibold))
-                                .padding(.horizontal, 22).padding(.vertical, 11)
-                                .background(.white.opacity(0.25), in: RoundedRectangle(cornerRadius: 5))
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                .padding(.horizontal, 24).padding(.vertical, 12)
+                                .background(.ultraThinMaterial, in: Capsule())
                                 .foregroundStyle(.white)
                         }
                         .buttonStyle(.plain)
                     }
                     .padding(.top, 4)
                 }
-                .padding(.horizontal, edgePad)
+                .padding(.horizontal, 34)
                 .padding(.bottom, 26)
             }
+            .clipShape(RoundedRectangle(cornerRadius: 26))
+            .overlay(RoundedRectangle(cornerRadius: 26).stroke(.white.opacity(0.08), lineWidth: 1))
+            .shadow(color: accentA.opacity(0.28), radius: 42, y: 18)
+            .padding(.horizontal, edgePad)
+            .padding(.top, 64)
         }
     }
 
@@ -559,11 +567,11 @@ struct BrowseView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         HStack(spacing: 10) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(accentRed)
-                .frame(width: 4, height: 20)
+            Circle()
+                .fill(accentGradient)
+                .frame(width: 8, height: 8)
             Text(title)
-                .font(.system(size: 21, weight: .bold))
+                .font(.system(size: 21, weight: .bold, design: .rounded))
         }
         .padding(.horizontal, edgePad)
     }
@@ -711,12 +719,12 @@ struct PosterCard: View {
                         }
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(.white.opacity(hovering ? 0.65 : 0.07), lineWidth: hovering ? 2 : 1))
-                .shadow(color: .black.opacity(hovering ? 0.8 : 0.35),
-                        radius: hovering ? 16 : 5, y: 5)
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(.white.opacity(hovering ? 0.5 : 0.07), lineWidth: hovering ? 1.5 : 1))
+                .shadow(color: hovering ? accentA.opacity(0.55) : .black.opacity(0.35),
+                        radius: hovering ? 18 : 5, y: 5)
 
                 Text(label)
                     .font(.system(size: 12))
@@ -736,7 +744,7 @@ struct PosterCard: View {
             ZStack(alignment: .leading) {
                 Rectangle().fill(.white.opacity(0.25))
                 Rectangle()
-                    .fill(Color(red: 0.9, green: 0.15, blue: 0.13))
+                    .fill(accentGradient)
                     .frame(width: geo.size.width * min(max(fraction, 0), 1))
             }
         }
@@ -775,7 +783,7 @@ struct ContinueCard: View {
                                 ZStack(alignment: .leading) {
                                     Rectangle().fill(.white.opacity(0.3))
                                     Rectangle()
-                                        .fill(Color(red: 0.9, green: 0.15, blue: 0.13))
+                                        .fill(accentGradient)
                                         .frame(width: geo.size.width * min(max(progress, 0), 1))
                                 }
                             }
@@ -783,12 +791,12 @@ struct ContinueCard: View {
                         }
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .clipShape(RoundedRectangle(cornerRadius: 16))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(.white.opacity(hovering ? 0.65 : 0.07), lineWidth: hovering ? 2 : 1))
-                .shadow(color: .black.opacity(hovering ? 0.8 : 0.35),
-                        radius: hovering ? 14 : 5, y: 4)
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(.white.opacity(hovering ? 0.5 : 0.07), lineWidth: hovering ? 1.5 : 1))
+                .shadow(color: hovering ? accentA.opacity(0.55) : .black.opacity(0.35),
+                        radius: hovering ? 16 : 5, y: 4)
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(item.label)
@@ -1013,7 +1021,7 @@ struct ShowDetailSheet: View {
                 if let o = ep.view_offset_secs, let d = ep.duration_secs, d > 0 {
                     ProgressView(value: o / d)
                         .frame(width: 60)
-                        .tint(Color(red: 0.9, green: 0.15, blue: 0.13))
+                        .tint(accentA)
                 }
             }
             .contentShape(Rectangle())
