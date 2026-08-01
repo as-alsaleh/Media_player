@@ -10,6 +10,22 @@ final class MetalHostUIView: UIView {
     override func didMoveToWindow() {
         super.didMoveToWindow()
         metalLayer.contentsScale = window?.screen.scale ?? 3.0
+        syncDrawableSize()
+    }
+
+    // Keep the drawable size in lockstep with the view so rotations and
+    // size changes don't leave mpv rendering at stale dimensions.
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        syncDrawableSize()
+    }
+
+    private func syncDrawableSize() {
+        let scale = window?.screen.scale ?? 3.0
+        let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+        if size.width > 0, size.height > 0, metalLayer.drawableSize != size {
+            metalLayer.drawableSize = size
+        }
     }
 }
 

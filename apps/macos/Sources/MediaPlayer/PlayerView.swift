@@ -22,6 +22,24 @@ final class MetalHostView: NSView {
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         metalLayer.contentsScale = window?.backingScaleFactor ?? 2.0
+        syncDrawableSize()
+    }
+
+    // Keep the layer's drawable size in lockstep with the view. Without
+    // this, fullscreen toggles / window resizes leave mpv rendering at the
+    // old dimensions (cropped or letterboxed picture) until the swapchain
+    // happens to recreate.
+    override func layout() {
+        super.layout()
+        syncDrawableSize()
+    }
+
+    private func syncDrawableSize() {
+        let scale = window?.backingScaleFactor ?? 2.0
+        let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+        if size.width > 0, size.height > 0, metalLayer.drawableSize != size {
+            metalLayer.drawableSize = size
+        }
     }
 }
 

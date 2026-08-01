@@ -21,7 +21,6 @@ struct RootView: View {
     @State private var showPlayer = false
     @State private var nowPlaying = ""
     @State private var nowPlayingPath: String?
-    @State private var pendingResume: Double?
     @State private var refreshTick = 0
     @State private var markers: [StreamerManager.PlexMarker] = []
     @State private var connecting = false
@@ -112,9 +111,11 @@ struct RootView: View {
         saveProgress()
         nowPlaying = title
         nowPlayingPath = path
-        pendingResume = resume
         showPlayer = true
         Prefs.apply(to: player)
+        // mpv's own start option resumes reliably — including replaying the
+        // same file, where waiting on a duration change never fires.
+        player.setString("start", resume.map { String(format: "+%.1f", $0) } ?? "none")
         player.load(url: url)
 
         markers = []
