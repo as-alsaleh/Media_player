@@ -188,6 +188,8 @@ struct Media {
 struct Part {
     key: String,
     id: Option<u64>,
+    /// Absolute path of the media file on the server.
+    file: Option<String>,
     /// "sd" when the server has generated video preview thumbnails (BIF).
     indexes: Option<String>,
     #[serde(rename = "Stream", default)]
@@ -610,6 +612,20 @@ impl PlexSource {
             .into_iter()
             .find(|r| r.provides.contains("server") && r.client_identifier == machine)
             .and_then(|r| r.access_token)
+    }
+
+    /// Absolute path of an item's media file on the server (for matching
+    /// the same file in other indexers, e.g. Jellyfin trickplay).
+    pub async fn file_path(&self, rating_key: &str) -> Option<String> {
+        let list: ItemList = self.get(&format!("/library/metadata/{rating_key}")).await?;
+        list.items
+            .first()?
+            .media
+            .first()?
+            .parts
+            .first()?
+            .file
+            .clone()
     }
 
     /// Seek-preview thumbnail URL template ("{ms}" placeholder) for an item,

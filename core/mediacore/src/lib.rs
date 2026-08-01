@@ -6,6 +6,7 @@
 
 pub mod ffi;
 pub mod index;
+pub mod jellyfin;
 pub mod parse;
 pub mod plex;
 pub mod smb;

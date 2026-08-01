@@ -28,6 +28,10 @@ struct Args {
     /// Token via MEDIACORED_PLEX_TOKEN.
     #[arg(long)]
     plex_url: Option<String>,
+    /// Jellyfin base URL — trickplay (seek preview) provider.
+    /// API key via MEDIACORED_JELLYFIN_KEY.
+    #[arg(long)]
+    jellyfin_url: Option<String>,
 }
 
 #[tokio::main]
@@ -62,6 +66,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             streamer = streamer
                 .with_plex_admin(Some(mediacore::plex::PlexSource::new(url.clone(), admin)));
         }
+    }
+    if let (Some(url), Ok(key)) = (&args.jellyfin_url, std::env::var("MEDIACORED_JELLYFIN_KEY")) {
+        streamer = streamer.with_jellyfin(Some(mediacore::jellyfin::JellyfinSource::new(
+            url.clone(),
+            key,
+        )));
     }
     let addr = streamer.serve(args.port).await?;
     // Machine-readable ready line — the app parses this to find the port.

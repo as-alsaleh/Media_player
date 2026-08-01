@@ -33,6 +33,8 @@ pub fn start_streamer(
     plex_url: Option<String>,
     plex_token: Option<String>,
     plex_admin_token: Option<String>,
+    jellyfin_url: Option<String>,
+    jellyfin_api_key: Option<String>,
 ) -> Result<String, CoreError> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -68,6 +70,12 @@ pub fn start_streamer(
                     admin.clone(),
                 )));
             }
+        }
+        if let (Some(url), Some(key)) = (&jellyfin_url, &jellyfin_api_key) {
+            streamer = streamer.with_jellyfin(Some(crate::jellyfin::JellyfinSource::new(
+                url.clone(),
+                key.clone(),
+            )));
         }
         streamer
             .serve(0)

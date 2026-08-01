@@ -86,6 +86,8 @@ struct RootView: View {
         let activeToken = defaults.string(forKey: "plexActiveToken") ?? adminToken
         let tmdb = defaults.string(forKey: "tmdbApiKey")
             ?? ProcessInfo.processInfo.environment["MEDIAPLAYER_TMDB_KEY"]
+        let jellyfinURL = defaults.string(forKey: "jellyfinURL")
+        let jellyfinKey = defaults.string(forKey: "jellyfinApiKey")
         let (server, share, username, password) = (server, share, username, password)
 
         Task.detached(priority: .userInitiated) {
@@ -93,7 +95,8 @@ struct RootView: View {
                 let url = try startStreamer(
                     server: server, share: share, username: username,
                     password: password, dbPath: db.path, tmdbApiKey: tmdb,
-                    plexUrl: plexURL, plexToken: activeToken, plexAdminToken: adminToken)
+                    plexUrl: plexURL, plexToken: activeToken, plexAdminToken: adminToken,
+                    jellyfinUrl: jellyfinURL, jellyfinApiKey: jellyfinKey)
                 await MainActor.run {
                     streamer.adopt(baseURL: URL(string: url))
                     connecting = false

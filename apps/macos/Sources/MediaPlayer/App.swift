@@ -36,7 +36,11 @@ struct ContentView: View {
     /// Hover position over the timeline: x in slider space, target time,
     /// and the slider's width (for clamping the bubble).
     @State private var hoverScrub: (x: CGFloat, time: Double, width: CGFloat)?
-    @State private var previewTemplate: String?
+    @State private var previewInfo: StreamerManager.SeekPreviewInfo?
+
+    private var hasPreviewImages: Bool {
+        previewInfo?.trickplay != nil || previewInfo?.template != nil
+    }
 
     private let progressTimer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
@@ -344,16 +348,19 @@ struct ContentView: View {
         .onChange(of: player.isPaused) { if player.isPaused { pokeControls() } }
     }
 
-    /// YouTube-style bubble over the timeline: frame preview (when the Plex
-    /// server has generated video preview thumbnails) plus the timestamp.
+    /// YouTube-style bubble over the timeline: mini frame preview (Jellyfin
+    /// trickplay tiles or a Plex BIF frame) plus the timestamp.
     @ViewBuilder
     private func seekPreview(_ scrub: (x: CGFloat, time: Double, width: CGFloat)) -> some View {
-        let bubbleWidth: CGFloat = previewTemplate != nil ? 200 : 96
+        let bubbleWidth: CGFloat = hasPreviewImages ? 200 : 96
         let x = min(max(scrub.x - bubbleWidth / 2, 0), scrub.width - bubbleWidth)
         VStack(spacing: 6) {
-            if let template = previewTemplate {
-                // BIF frames come every few seconds; round to 10s so hovering
-                // doesn't hammer the server.
+            if let tp = previewInfo?.trickplay {
+                trickplayFrame(tp, time: scrub.time)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.35), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.7), radius: 12, y: 4)
+            } else if let template = previewInfo?.template {
                 let ms = Int(scrub.time / 10) * 10_000
                 FadeInImage(url: URL(string: template.replacingOccurrences(of: "{ms}", with: String(ms))))
                     .frame(width: 200, height: 112)
@@ -370,8 +377,30 @@ struct ContentView: View {
                 .shadow(color: .black.opacity(0.5), radius: 8, y: 3)
         }
         .frame(width: bubbleWidth)
-        .offset(x: x, y: previewTemplate != nil ? -158 : -48)
+        .offset(x: x, y: hasPreviewImages ? -170 : -48)
         .allowsHitTesting(false)
+    }
+
+    /// One thumbnail cropped out of a Jellyfin trickplay tile-grid image.
+    @ViewBuilder
+    private func trickplayFrame(_ tp: StreamerManager.TrickplayInfo, time: Double) -> some View {
+        let displayW: CGFloat = 200
+        let scale = displayW / CGFloat(tp.thumb_width)
+        let displayH = (CGFloat(tp.thumb_height) * scale).rounded()
+        let idx = max(0, min(Int(time * 1000 / Double(max(tp.interval_ms, 1))),
+                             Int(tp.thumbnail_count) - 1))
+        let perGrid = Int(tp.tile_cols * tp.tile_rows)
+        let grid = idx / max(perGrid, 1)
+        let within = idx % max(perGrid, 1)
+        let row = within / Int(max(tp.tile_cols, 1))
+        let col = within % Int(max(tp.tile_cols, 1))
+        FadeInImage(url: URL(string: tp.tile_url_template.replacingOccurrences(of: "{i}", with: String(grid))))
+            .frame(width: displayW * CGFloat(tp.tile_cols),
+                   height: displayH * CGFloat(tp.tile_rows),
+                   alignment: .topLeading)
+            .offset(x: -CGFloat(col) * displayW, y: -CGFloat(row) * displayH)
+            .frame(width: displayW, height: displayH, alignment: .topLeading)
+            .clipped()
     }
 
     /// SF Symbol matching the configured skip length.
@@ -418,11 +447,11 @@ struct ContentView: View {
         player.load(url: url)
 
         markers = []
-        previewTemplate = nil
+        previewInfo = nil
         if path.hasPrefix("plex:") {
             let key = String(path.dropFirst("plex:".count))
             Task { markers = await streamer.plexMarkers(ratingKey: key) }
-            Task { previewTemplate = await streamer.plexPreviewTemplate(ratingKey: key) }
+            Task { previewInfo = await streamer.plexSeekPreview(ratingKey: key) }
             Task { await loadExternalSubtitles(ratingKey: key) }
         }
 

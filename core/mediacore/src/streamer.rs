@@ -32,6 +32,8 @@ pub struct AppState {
     /// Active user is a restricted Home profile: hide local-index items and
     /// block raw share browsing so Plex library permissions are respected.
     pub restricted: bool,
+    /// Trickplay (seek-preview thumbnail) provider.
+    pub jellyfin: Option<Arc<crate::jellyfin::JellyfinSource>>,
 }
 
 /// Unified library item shapes served to the UI, regardless of source.
@@ -130,8 +132,14 @@ impl Streamer {
                 plex: None,
                 plex_admin: None,
                 restricted: false,
+                jellyfin: None,
             },
         }
+    }
+
+    pub fn with_jellyfin(mut self, jf: Option<crate::jellyfin::JellyfinSource>) -> Self {
+        self.state.jellyfin = jf.map(Arc::new);
+        self
     }
 
     pub fn with_plex(mut self, plex: Option<crate::plex::PlexSource>) -> Self {
@@ -446,6 +454,8 @@ async fn plex_markers(
     Json(plex.markers(key).await).into_response()
 }
 
+/// Seek-preview sources for an item, best first: Jellyfin trickplay tiles
+/// (matched by file path), else a Plex BIF frame-URL template.
 async fn plex_preview(
     State(st): State<AppState>,
     Query(q): Query<HashMap<String, String>>,
@@ -453,7 +463,18 @@ async fn plex_preview(
     let (Some(plex), Some(key)) = (&st.plex, q.get("rating_key")) else {
         return (StatusCode::BAD_REQUEST, "plex + rating_key required").into_response();
     };
-    Json(serde_json::json!({"template": plex.preview_template(key).await})).into_response()
+    let mut trickplay = None;
+    if let Some(jf) = &st.jellyfin {
+        if let Some(path) = plex.file_path(key).await {
+            trickplay = jf.trickplay_for_path(&path).await;
+        }
+    }
+    let template = if trickplay.is_none() {
+        plex.preview_template(key).await
+    } else {
+        None
+    };
+    Json(serde_json::json!({"trickplay": trickplay, "template": template})).into_response()
 }
 
 async fn plex_subtitles(

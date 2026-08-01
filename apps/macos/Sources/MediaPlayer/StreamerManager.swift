@@ -79,6 +79,11 @@ final class StreamerManager: ObservableObject {
             env["MEDIACORED_PLEX_TOKEN"] = active
             env["MEDIACORED_PLEX_ADMIN_TOKEN"] = adminToken
         }
+        if let jfURL = UserDefaults.standard.string(forKey: "jellyfinURL"), !jfURL.isEmpty,
+           let jfKey = UserDefaults.standard.string(forKey: "jellyfinApiKey"), !jfKey.isEmpty {
+            proc.arguments?.append(contentsOf: ["--jellyfin-url", jfURL])
+            env["MEDIACORED_JELLYFIN_KEY"] = jfKey
+        }
         proc.environment = env
 
         let pipe = Pipe()
@@ -278,15 +283,30 @@ final class StreamerManager: ObservableObject {
         return try? JSONDecoder().decode(PlexLoginResult.self, from: data)
     }
 
-    /// Seek-preview thumbnail URL template ("{ms}" placeholder), when the
-    /// Plex server has generated video preview thumbnails for the item.
-    func plexPreviewTemplate(ratingKey: String) async -> String? {
+    /// Jellyfin trickplay tile manifest for the seek-preview bubble.
+    struct TrickplayInfo: Codable, Equatable {
+        let tile_url_template: String   // contains "{i}"
+        let interval_ms: UInt64
+        let tile_cols: UInt32
+        let tile_rows: UInt32
+        let thumb_width: UInt32
+        let thumb_height: UInt32
+        let thumbnail_count: UInt32
+    }
+
+    struct SeekPreviewInfo: Codable, Equatable {
+        let trickplay: TrickplayInfo?
+        /// Plex BIF frame-URL template ("{ms}" placeholder), fallback.
+        let template: String?
+    }
+
+    /// Seek-preview sources for an item (Jellyfin trickplay, else Plex BIF).
+    func plexSeekPreview(ratingKey: String) async -> SeekPreviewInfo? {
         guard let baseURL else { return nil }
-        struct Resp: Codable { let template: String? }
         var comps = URLComponents(url: baseURL.appendingPathComponent("plex/preview"), resolvingAgainstBaseURL: false)!
         comps.queryItems = [URLQueryItem(name: "rating_key", value: ratingKey)]
         guard let (data, _) = try? await URLSession.shared.data(from: comps.url!) else { return nil }
-        return (try? JSONDecoder().decode(Resp.self, from: data))?.template
+        return try? JSONDecoder().decode(SeekPreviewInfo.self, from: data)
     }
 
     struct PlexSubtitle: Codable, Hashable {

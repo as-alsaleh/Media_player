@@ -55,6 +55,10 @@ struct SettingsView: View {
     @State private var smbPassword = ""
     @State private var cacheCleared = false
 
+    // Jellyfin (trickplay/seek-preview provider)
+    @AppStorage("jellyfinURL") private var jellyfinURL = ""
+    @AppStorage("jellyfinApiKey") private var jellyfinApiKey = ""
+
     /// Track-selection languages (mpv alang/slang code lists).
     private static let trackLanguages: [(String, String)] = [
         ("Auto", ""), ("English", "eng,en"), ("Arabic", "ara,ar"),
@@ -254,6 +258,18 @@ struct SettingsView: View {
                 .padding(.top, 6)
 
                 Text("Files on the share appear in the Files tab and, without Plex, in the library.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.4))
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 12)
+        }
+
+        card("Jellyfin (Seek Previews)") {
+            VStack(spacing: 8) {
+                field("Server", text: $jellyfinURL, prompt: "http://192.168.1.10:8096")
+                field("API key", text: $jellyfinApiKey, prompt: "from Dashboard → API Keys")
+                Text("Jellyfin's trickplay images power the mini picture when scrubbing the timeline. Reconnect (or restart the app) after changing.")
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.4))
                     .multilineTextAlignment(.center)
