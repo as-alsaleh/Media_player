@@ -11,6 +11,8 @@ struct PlayerSettingsView: View {
     @State private var subScale: Double = 1.0
     @State private var subDelay: Double = 0
     @State private var audioDelay: Double = 0
+    @State private var boost = false
+    @State private var chapters: [MPVPlayer.Chapter] = []
 
     private let speeds: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
 
@@ -38,6 +40,11 @@ struct PlayerSettingsView: View {
                 }
 
                 section("Playback", icon: "play.circle.fill") {
+                    Toggle(isOn: $boost) {
+                        Text("Volume Boost (night mode)").font(.system(size: 12.5))
+                    }
+                    .toggleStyle(.switch)
+                    .onChange(of: boost) { player.setAudioBoost(boost) }
                     HStack(spacing: 6) {
                         ForEach(speeds, id: \.self) { s in
                             Button {
@@ -55,6 +62,21 @@ struct PlayerSettingsView: View {
                         }
                     }
                 }
+                if !chapters.isEmpty {
+                    section("Chapters", icon: "list.bullet") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(chapters) { chapter in
+                                trackRow(
+                                    label: chapter.title,
+                                    selected: player.timePos >= chapter.time &&
+                                        (chapters.first { $0.time > chapter.time }?.time ?? .infinity) > player.timePos
+                                ) {
+                                    player.seek(to: chapter.time)
+                                }
+                            }
+                        }
+                    }
+                }
             }
             .padding(16)
         }
@@ -69,6 +91,7 @@ struct PlayerSettingsView: View {
             subScale = scale > 0 ? scale : 1.0
             subDelay = player.getDouble("sub-delay")
             audioDelay = player.getDouble("audio-delay")
+            chapters = player.chapters()
         }
     }
 

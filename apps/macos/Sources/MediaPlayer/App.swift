@@ -258,11 +258,35 @@ struct ContentView: View {
                 .transition(.opacity)
             }
         }
+        .background(playerShortcuts)
         .onContinuousHover { phase in
             if case .active = phase { pokeControls() }
         }
         .onAppear(perform: pokeControls)
         .onChange(of: player.isPaused) { if player.isPaused { pokeControls() } }
+    }
+
+    /// Hidden buttons that give the player standard keyboard control:
+    /// ←/→ seek ∓10s, ↑/↓ volume, M mute, F fullscreen, Esc close.
+    private var playerShortcuts: some View {
+        Group {
+            Button("") { player.seek(to: max(player.timePos - 10, 0)); pokeControls() }
+                .keyboardShortcut(.leftArrow, modifiers: [])
+            Button("") { player.seek(to: player.timePos + 10); pokeControls() }
+                .keyboardShortcut(.rightArrow, modifiers: [])
+            Button("") { player.adjustVolume(by: 5); pokeControls() }
+                .keyboardShortcut(.upArrow, modifiers: [])
+            Button("") { player.adjustVolume(by: -5); pokeControls() }
+                .keyboardShortcut(.downArrow, modifiers: [])
+            Button("") { player.cycleMute() }
+                .keyboardShortcut("m", modifiers: [])
+            Button("") { NSApp.keyWindow?.toggleFullScreen(nil) }
+                .keyboardShortcut("f", modifiers: [])
+            Button("") { closePlayer() }
+                .keyboardShortcut(.escape, modifiers: [])
+        }
+        .opacity(0)
+        .frame(width: 0, height: 0)
     }
 
     private func startPlayback(url: URL, title: String, path: String, resume: Double?) {

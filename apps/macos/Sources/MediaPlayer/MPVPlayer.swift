@@ -116,6 +116,16 @@ final class MPVPlayer: ObservableObject {
         command("seek", String(seconds), "absolute")
     }
 
+    func cycleMute() {
+        guard let mpv else { return }
+        mpv_command_string(mpv, "cycle mute")
+    }
+
+    func adjustVolume(by delta: Double) {
+        let v = min(max(getDouble("volume") + delta, 0), 130)
+        setDouble("volume", v)
+    }
+
     func setTrack(type: String, id: Int) {
         // type: "aid" (audio) or "sid" (subtitles); id 0 disables.
         guard let mpv else { return }
@@ -159,6 +169,32 @@ final class MPVPlayer: ObservableObject {
         return raw.map {
             Track(id: $0.id, type: $0.type, title: $0.title, lang: $0.lang, selected: $0.selected)
         }
+    }
+
+    struct Chapter: Identifiable, Hashable {
+        let id: Int
+        let title: String
+        let time: Double
+    }
+
+    /// Chapter list from the demuxer (may be empty).
+    func chapters() -> [Chapter] {
+        guard let mpv, let cstr = mpv_get_property_string(mpv, "chapter-list") else { return [] }
+        defer { mpv_free(cstr) }
+        struct Raw: Decodable {
+            let title: String?
+            let time: Double
+        }
+        let raw = (try? JSONDecoder().decode([Raw].self, from: Data(String(cString: cstr).utf8))) ?? []
+        return raw.enumerated().map { i, c in
+            Chapter(id: i, title: c.title ?? "Chapter \(i + 1)", time: c.time)
+        }
+    }
+
+    /// Dynamic-range compression so quiet dialogue is audible at low volume.
+    func setAudioBoost(_ on: Bool) {
+        guard let mpv else { return }
+        mpv_set_property_string(mpv, "af", on ? "dynaudnorm=g=5:f=250:r=0.9:p=0.5" : "")
     }
 
     func setDouble(_ name: String, _ value: Double) {
