@@ -109,6 +109,8 @@ struct BrowseView: View {
     @ObservedObject var streamer: StreamerManager
     /// Reloads the library whenever this changes (e.g. after playback ends).
     var refreshTick: Int = 0
+    /// Restart the engine after settings change or to retry a connection.
+    var onReconnect: () -> Void = {}
     let onPlay: (URL, String, String, Double?) -> Void   // url, title, progress key, resume secs
 
     enum Tab: String, CaseIterable {
@@ -125,6 +127,7 @@ struct BrowseView: View {
     @State private var selectedMovie: StreamerManager.LibraryMovie?
     @State private var scanning = false
     @State private var showFiles = false
+    @State private var showSettings = false
     @State private var plexUsers: [StreamerManager.PlexUser] = []
     @State private var pinPromptUser: StreamerManager.PlexUser?
     @State private var pinInput = ""
@@ -186,6 +189,9 @@ struct BrowseView: View {
             #if os(macOS)
             .frame(width: 480, height: 560)
             #endif
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView(onSaved: onReconnect)
         }
         .alert("PIN for \(pinPromptUser?.title ?? "")", isPresented: .init(
             get: { pinPromptUser != nil },
@@ -272,6 +278,11 @@ struct BrowseView: View {
                 .buttonStyle(.plain)
                 .help("Browse files")
             }
+            Button { showSettings = true } label: {
+                Image(systemName: "gearshape")
+            }
+            .buttonStyle(.plain)
+            .help("Settings")
         }
         .font(.system(size: 14))
         .foregroundStyle(.white.opacity(0.85))

@@ -31,7 +31,8 @@ struct RootView: View {
     var body: some View {
         Group {
             if streamer.baseURL != nil {
-                BrowseView(streamer: streamer, refreshTick: refreshTick, onPlay: startPlayback)
+                BrowseView(streamer: streamer, refreshTick: refreshTick,
+                           onReconnect: startCore, onPlay: startPlayback)
             } else {
                 connectForm
             }

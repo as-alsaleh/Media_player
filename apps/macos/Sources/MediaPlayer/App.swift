@@ -38,7 +38,8 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             if streamer.baseURL != nil {
-                BrowseView(streamer: streamer, refreshTick: refreshTick, onPlay: startPlayback)
+                BrowseView(streamer: streamer, refreshTick: refreshTick,
+                           onReconnect: autoConnect, onPlay: startPlayback)
             } else {
                 setup
             }
