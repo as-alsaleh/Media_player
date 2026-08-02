@@ -632,6 +632,20 @@ mod tests {
         assert_eq!(iso_to_epoch(&Some("not a date".to_string())), None);
     }
 
+    /// Same degradation contract as the Plex source.
+    #[tokio::test]
+    async fn unreachable_server_degrades_to_empty() {
+        let jf = JellyfinSource::new("http://127.0.0.1:9".into(), "key".into())
+            .with_user(Some("t".into()), Some("u".into()));
+        assert!(jf.markers("1").await.is_empty());
+        assert!(jf.subtitles("1").await.is_empty());
+        assert!(jf.movies().await.is_empty());
+        assert!(jf.trickplay_for_item("1").await.is_none());
+        assert!(!jf.rate("1", 8.0).await);
+        assert!(!jf.set_watched("1", true).await);
+        assert!(!jf.report_progress("1", 10.0, "playing").await);
+    }
+
     #[test]
     fn parses_item_with_ratings_and_userdata() {
         let raw = r#"{

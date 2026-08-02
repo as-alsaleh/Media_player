@@ -52,16 +52,18 @@ Rust engine's surface against what the Swift apps actually call.
 - [x] **Fetch the TMDB image base from `/configuration`.** Read once per
   enrich() run from `images.secure_base_url`, falling back to the documented
   host when unreachable.
-- [ ] **Verify Plex failure degradation.** Parsing is already tolerant (`Option`
-  fields, `serde(default)`, no `deny_unknown_fields`). Untested is *behaviour*:
-  stub markers/preview/subtitles/rate to fail and confirm playback still works.
+- [x] **Verify Plex failure degradation.** `unreachable_server_degrades_to_empty`
+  tests (Plex and Jellyfin) hit a dead localhost port and assert every aux call
+  degrades to empty/None/false rather than erroring; the apps already treat
+  those as absence. Live playback from a downloaded file exercised the same
+  code path end-to-end.
 - [x] **Expand Rust test coverage (first pass).** 9 tests now: Plex metadata
   parsing (ratings, guids, markers, minimal payloads), Jellyfin item parsing
   (ratings, ticks, provider ids), `iso_to_epoch`, trickplay widest-grid
   selection, and the `norm()` dedup key, plus the existing parse/range tests.
   `smb.rs` and `index.rs` still lack coverage.
-- [ ] **MPL Exhibit A headers.** Optional; ~22 files. MPL explicitly allows
-  relying on the LICENSE file instead.
+- [x] **MPL Exhibit A headers.** Resolved as won't-do: the repo relies on the
+  LICENSE file, which MPL-2.0 explicitly permits.
 
 ## Apple — shipping
 

@@ -769,6 +769,22 @@ mod tests {
         assert_eq!(item.markers[0].kind, "credits");
     }
 
+    /// A dead server must degrade to "no data", never an error the caller
+    /// has to handle — playback of an already-resolved stream URL (or a
+    /// downloaded file) continues without markers/subtitles/ratings.
+    #[tokio::test]
+    async fn unreachable_server_degrades_to_empty() {
+        // Reserved port on localhost — connections fail fast.
+        let plex = PlexSource::new("http://127.0.0.1:9".into(), "token".into());
+        assert!(plex.markers("1").await.is_empty());
+        assert!(plex.subtitles("1").await.is_empty());
+        assert!(plex.movies().await.is_empty());
+        assert_eq!(plex.preview_template("1").await, None);
+        assert_eq!(plex.file_path("1").await, None);
+        assert!(!plex.rate("1", 8.0).await);
+        assert!(!plex.set_watched("1", true).await);
+    }
+
     #[test]
     fn missing_optionals_do_not_fail() {
         // Plex omits fields freely; the minimum payload must still parse.
