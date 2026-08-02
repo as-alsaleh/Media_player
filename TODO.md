@@ -99,6 +99,9 @@ Rust engine's surface against what the Swift apps actually call.
 
 ## Windows port
 
+**Detailed working plan: [TODO-windows.md](TODO-windows.md)** — milestone
+order, exact commands, framework recommendation, and the do-not-copy list.
+
 Ordered by difficulty. **Reconsider the UI rewrite before starting any of
 this** — Plezy already covers Windows with Plex + Jellyfin + mpv, and that item
 is ~80% of the total effort.
