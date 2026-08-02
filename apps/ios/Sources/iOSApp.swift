@@ -426,6 +426,14 @@ struct PlayerScreen: View {
             #endif
         }
         .onAppear(perform: scheduleHide)
+        .onChange(of: active) {
+            // Fresh playback (the mounted player being fronted) starts with
+            // the controls up, then auto-hides as usual.
+            if active {
+                withAnimation { controlsVisible = true }
+                scheduleHide()
+            }
+        }
     }
 
     private func scheduleHide() {
