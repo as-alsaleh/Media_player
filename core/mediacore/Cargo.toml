@@ -22,7 +22,9 @@ tracing-subscriber = "0.3.23"
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 regex = "1.13.1"
 serde_json = "1.0.151"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# Native roots, not the compiled-in webpki snapshot: a shipped build that can no
+# longer be rebuilt still inherits CA updates from the OS trust store.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
 uniffi = { version = "0.32.0", features = ["cli"] }
 # SMB client — evaluate pure-Rust `smb` vs wrapping libsmb2; see docs/smb-client.md
 # uniffi = "0.28"   # enable when wiring the Swift FFI (M1 step 3)

@@ -16,6 +16,8 @@ final class MPVPlayer: ObservableObject {
     @Published var duration: Double = 0
     @Published var hwdecCurrent = ""
     @Published var mediaTitle = ""
+    /// Non-nil when no render backend could be brought up at all.
+    @Published var initError: String?
 
     private var mpv: OpaquePointer?
     private var eventThread: Thread?
@@ -28,48 +30,32 @@ final class MPVPlayer: ObservableObject {
 
     func attach(layer: CAMetalLayer) {
         guard mpv == nil else { return }
-        guard let handle = mpv_create() else {
-            fatalError("mpv_create failed")
+
+        // `vulkan` is the tuned path (MoltenVK + libplacebo). If that context
+        // ever fails to come up — a MoltenVK/Metal mismatch on some future
+        // macOS — retry letting mpv pick the backend rather than leaving the
+        // user staring at a black window with no way back. gpu-next is kept on
+        // both passes so the HDR pipeline below survives the fallback.
+        for api in ["vulkan", "auto"] {
+            guard let handle = mpv_create() else {
+                initError = "mpv_create failed"
+                return
+            }
+            mpv = handle
+            configure(handle: handle, layer: layer, gpuAPI: api)
+
+            let rc = mpv_initialize(handle)
+            if rc >= 0 {
+                initError = nil
+                break
+            }
+
+            initError = "mpv_initialize failed (gpu-api=\(api)): "
+                + String(cString: mpv_error_string(rc))
+            mpv = nil
+            mpv_destroy(handle)
         }
-        mpv = handle
-
-        // mpv's macOS vulkan (MoltenVK) context expects a CAMetalLayer pointer in `wid`.
-        var layerPtr = Int64(Int(bitPattern: Unmanaged.passUnretained(layer).toOpaque()))
-        mpv_set_option(handle, "wid", MPV_FORMAT_INT64, &layerPtr)
-
-        // Diagnostic log, overwritten each run.
-        setOption("log-file", NSTemporaryDirectory() + "mediaplayer-mpv.log")
-        setOption("msg-level", "all=v")
-
-        setOption("vo", "gpu-next")
-        setOption("gpu-api", "vulkan")
-        setOption("hwdec", "videotoolbox")
-        setOption("target-colorspace-hint", "yes")
-
-        // HDR / Dolby Vision quality pipeline (libplacebo):
-        // dynamic peak detection + spline tone mapping preserves highlights,
-        // perceptual gamut mapping avoids hue shifts, deband hides gradient
-        // banding common in HDR web rips. DV P5/P8 RPUs are applied by
-        // libplacebo via libdovi automatically under gpu-next.
-        setOption("tone-mapping", "spline")
-        setOption("hdr-compute-peak", "yes")
-        setOption("gamut-mapping-mode", "perceptual")
-        setOption("deband", "yes")
-        // High-quality scalers; Apple-silicon GPUs handle these fine at 4K.
-        setOption("scale", "ewa_lanczossharp")
-        setOption("cscale", "ewa_lanczossharp")
-        setOption("dscale", "hermite")
-        setOption("dither-depth", "auto")
-        setOption("keep-open", "yes")
-        setOption("input-default-bindings", "no")
-        // Generous demuxer cache for high-bitrate network streams later.
-        setOption("cache", "yes")
-        setOption("demuxer-max-bytes", "256MiB")
-        setOption("demuxer-readahead-secs", "60")
-        // Ride out transient HTTP hiccups (Plex occasionally 503s under load).
-        setOption("stream-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5")
-
-        mpv_initialize(handle)
+        guard mpv != nil else { return }
 
         // Scaler/shader tier (Quality / Enhanced / Battery saver) is global;
         // per-load Prefs.apply re-asserts it alongside audio/language prefs.
@@ -101,6 +87,45 @@ final class MPVPlayer: ObservableObject {
                 load(url: URL(fileURLWithPath: arg))
             }
         }
+    }
+
+    /// Everything that has to be set before `mpv_initialize`.
+    private func configure(handle: OpaquePointer, layer: CAMetalLayer, gpuAPI: String) {
+        // mpv's macOS vulkan (MoltenVK) context expects a CAMetalLayer pointer in `wid`.
+        var layerPtr = Int64(Int(bitPattern: Unmanaged.passUnretained(layer).toOpaque()))
+        mpv_set_option(handle, "wid", MPV_FORMAT_INT64, &layerPtr)
+
+        // Diagnostic log, overwritten each run.
+        setOption("log-file", NSTemporaryDirectory() + "mediaplayer-mpv.log")
+        setOption("msg-level", "all=v")
+
+        setOption("vo", "gpu-next")
+        setOption("gpu-api", gpuAPI)
+        setOption("hwdec", "videotoolbox")
+        setOption("target-colorspace-hint", "yes")
+
+        // HDR / Dolby Vision quality pipeline (libplacebo):
+        // dynamic peak detection + spline tone mapping preserves highlights,
+        // perceptual gamut mapping avoids hue shifts, deband hides gradient
+        // banding common in HDR web rips. DV P5/P8 RPUs are applied by
+        // libplacebo via libdovi automatically under gpu-next.
+        setOption("tone-mapping", "spline")
+        setOption("hdr-compute-peak", "yes")
+        setOption("gamut-mapping-mode", "perceptual")
+        setOption("deband", "yes")
+        // High-quality scalers; Apple-silicon GPUs handle these fine at 4K.
+        setOption("scale", "ewa_lanczossharp")
+        setOption("cscale", "ewa_lanczossharp")
+        setOption("dscale", "hermite")
+        setOption("dither-depth", "auto")
+        setOption("keep-open", "yes")
+        setOption("input-default-bindings", "no")
+        // Generous demuxer cache for high-bitrate network streams later.
+        setOption("cache", "yes")
+        setOption("demuxer-max-bytes", "256MiB")
+        setOption("demuxer-readahead-secs", "60")
+        // Ride out transient HTTP hiccups (Plex occasionally 503s under load).
+        setOption("stream-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5")
     }
 
     func load(url: URL) {
