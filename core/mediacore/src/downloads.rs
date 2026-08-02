@@ -21,6 +21,9 @@ pub struct DownloadEntry {
     pub poster_url: Option<String>,
     /// Absolute path of the (finished or in-flight) local file.
     pub file: String,
+    /// Local copy of the poster, fetched at start — artwork works offline.
+    #[serde(default)]
+    pub poster_file: Option<String>,
     pub bytes_done: u64,
     pub bytes_total: Option<u64>,
     /// "downloading" | "done" | "error"
@@ -84,6 +87,9 @@ impl DownloadStore {
         let Some(e) = entries.remove(key) else { return false };
         std::fs::remove_file(&e.file).ok();
         std::fs::remove_file(format!("{}.part", e.file)).ok();
+        if let Some(p) = &e.poster_file {
+            std::fs::remove_file(p).ok();
+        }
         self.persist_locked(&entries);
         true
     }
@@ -137,8 +143,9 @@ impl DownloadStore {
         let entry = DownloadEntry {
             key: key.clone(),
             title,
-            poster_url,
+            poster_url: poster_url.clone(),
             file: file.clone(),
+            poster_file: None,
             bytes_done: 0,
             bytes_total: None,
             state: "downloading".into(),
@@ -154,6 +161,24 @@ impl DownloadStore {
             }
             entries.insert(key.clone(), entry.clone());
             self.persist_locked(&entries);
+        }
+
+        // Cache the poster locally so Downloads has artwork with no server.
+        if let Some(poster) = poster_url {
+            let store = Arc::clone(self);
+            let poster_key = key.clone();
+            let poster_path = format!("{file}.poster.jpg");
+            tokio::spawn(async move {
+                let client = reqwest::Client::builder()
+                    .danger_accept_invalid_certs(true)
+                    .build()
+                    .unwrap_or_default();
+                let Ok(resp) = client.get(&poster).send().await else { return };
+                let Ok(bytes) = resp.bytes().await else { return };
+                if tokio::fs::write(&poster_path, &bytes).await.is_ok() {
+                    store.update(&poster_key, |e| e.poster_file = Some(poster_path), true);
+                }
+            });
         }
 
         let store = Arc::clone(self);

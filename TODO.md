@@ -36,8 +36,9 @@ Rust engine's surface against what the Swift apps actually call.
   progress, play-from-disk and delete. Progress keys carry over, so resume
   points work offline. Verified end-to-end: 379 MB episode downloaded and
   played back from disk with its resume point. Per-episode download buttons
-  added to the show sheet (verified live). Remaining follow-up: poster
-  caching for fully-offline artwork.
+  added to the show sheet (verified live). Posters are cached locally at
+  download start (poster_file in the manifest; delete cleans it up) so the
+  Downloads sheet has artwork fully offline — verified on a scratch engine.
 - [ ] **Emby source.** *Deferred — needs an Emby instance to verify against.*
   `jellyfin.rs` already sends `X-Emby-Authorization` and the endpoints used
   (auth, items, sessions, played-items, media segments, subtitles) are

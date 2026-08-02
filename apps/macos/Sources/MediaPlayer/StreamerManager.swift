@@ -450,10 +450,17 @@ final class StreamerManager: ObservableObject {
         let title: String
         let poster_url: String?
         let file: String
+        /// Local poster copy — artwork with no server reachable.
+        let poster_file: String?
         let bytes_done: UInt64
         let bytes_total: UInt64?
         let state: String   // "downloading" | "done" | "error"
         var id: String { key }
+
+        var posterURL: URL? {
+            if let poster_file { return URL(fileURLWithPath: poster_file) }
+            return poster_url.flatMap(URL.init)
+        }
 
         var fraction: Double? {
             guard let total = bytes_total, total > 0 else { return nil }

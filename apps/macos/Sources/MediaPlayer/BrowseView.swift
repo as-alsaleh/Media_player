@@ -1400,7 +1400,7 @@ struct DownloadsSheet: View {
     @ViewBuilder
     private func row(_ entry: StreamerManager.DownloadEntry) -> some View {
         HStack(spacing: 10) {
-            FadeInImage(url: entry.poster_url.flatMap(URL.init))
+            FadeInImage(url: entry.posterURL)
                 .frame(width: 34, height: 50)
                 .clipShape(RoundedRectangle(cornerRadius: 5))
             VStack(alignment: .leading, spacing: 4) {
