@@ -191,9 +191,6 @@ impl Streamer {
             .route("/jellyfin/login", get(jellyfin_login))
             .route("/jellyfin/progress", get(jellyfin_progress))
             .route("/jellyfin/watched", get(jellyfin_watched))
-            .route("/trakt/login/start", get(trakt_login_start))
-            .route("/trakt/login/poll", get(trakt_login_poll))
-            .route("/trakt/scrobble", get(trakt_scrobble))
             .with_state(self.state);
         let listener =
             tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port))).await?;
@@ -674,74 +671,6 @@ async fn plex_login_poll(Query(q): Query<HashMap<String, String>>) -> Response {
                 .into_response(),
         },
     }
-}
-
-async fn trakt_login_start(Query(q): Query<HashMap<String, String>>) -> Response {
-    let Some(client_id) = q.get("client_id") else {
-        return (StatusCode::BAD_REQUEST, "client_id required").into_response();
-    };
-    match crate::trakt::device_code(client_id).await {
-        Some(code) => Json(code).into_response(),
-        None => (StatusCode::BAD_GATEWAY, "trakt.tv unreachable").into_response(),
-    }
-}
-
-async fn trakt_login_poll(Query(q): Query<HashMap<String, String>>) -> Response {
-    let (Some(id), Some(secret), Some(code)) = (
-        q.get("client_id"),
-        q.get("client_secret"),
-        q.get("device_code"),
-    ) else {
-        return (StatusCode::BAD_REQUEST, "client_id, client_secret, device_code required")
-            .into_response();
-    };
-    match crate::trakt::device_token(id, secret, code).await {
-        Some(t) => Json(serde_json::json!({
-            "pending": false,
-            "access_token": t.access_token,
-            "refresh_token": t.refresh_token,
-        }))
-        .into_response(),
-        None => Json(serde_json::json!({"pending": true})).into_response(),
-    }
-}
-
-async fn trakt_scrobble(Query(q): Query<HashMap<String, String>>) -> Response {
-    let (Some(client_id), Some(token), Some(state), Some(progress), Some(kind)) = (
-        q.get("client_id"),
-        q.get("token"),
-        q.get("state"),
-        q.get("progress").and_then(|p| p.parse::<f64>().ok()),
-        q.get("kind"),
-    ) else {
-        return (StatusCode::BAD_REQUEST, "client_id, token, state, progress, kind required")
-            .into_response();
-    };
-    let body = match kind.as_str() {
-        "movie" => {
-            let Some(tmdb) = q.get("tmdb").and_then(|t| t.parse::<u64>().ok()) else {
-                return (StatusCode::BAD_REQUEST, "tmdb required").into_response();
-            };
-            serde_json::json!({"movie": {"ids": {"tmdb": tmdb}}})
-        }
-        "episode" => {
-            let (Some(tmdb), Some(season), Some(episode)) = (
-                q.get("tmdb").and_then(|t| t.parse::<u64>().ok()),
-                q.get("season").and_then(|v| v.parse::<u32>().ok()),
-                q.get("episode").and_then(|v| v.parse::<u32>().ok()),
-            ) else {
-                return (StatusCode::BAD_REQUEST, "tmdb, season, episode required")
-                    .into_response();
-            };
-            serde_json::json!({
-                "show": {"ids": {"tmdb": tmdb}},
-                "episode": {"season": season, "number": episode},
-            })
-        }
-        _ => return (StatusCode::BAD_REQUEST, "kind must be movie|episode").into_response(),
-    };
-    let ok = crate::trakt::scrobble(client_id, token, state, body, progress).await;
-    Json(serde_json::json!({"ok": ok})).into_response()
 }
 
 async fn plex_users(State(st): State<AppState>) -> Response {

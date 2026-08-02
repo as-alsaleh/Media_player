@@ -129,6 +129,28 @@ struct ContentView: View {
             PlayerView(player: player)
                 .ignoresSafeArea()
 
+            // A dead render backend otherwise looks like an endless black
+            // screen — tell the user and give them a way out.
+            if let err = player.initError {
+                VStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 34))
+                        .foregroundStyle(.yellow)
+                    Text("Playback engine failed to start")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text(err)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 420)
+                    Button("Close") { closePlayer() }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.white.opacity(0.25))
+                }
+                .padding(28)
+                .background(.black.opacity(0.85), in: RoundedRectangle(cornerRadius: 16))
+            }
+
             // Top gradient: back, title, codec badge.
             VStack {
                 HStack(spacing: 12) {

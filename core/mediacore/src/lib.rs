@@ -12,7 +12,6 @@ pub mod plex;
 pub mod smb;
 pub mod streamer;
 pub mod tmdb;
-pub mod trakt;
 
 pub use streamer::Streamer;
 

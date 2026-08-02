@@ -1,8 +1,9 @@
 # mediaplayer
 
-An open-source, media player for **macOS, iOS and tvOS** — a
-beautiful native front-end for your Plex server (and plain SMB shares) with
-hardware-decoded 4K HDR playback. Maybe also for windows in the future
+An open-source media player for **macOS, iOS and tvOS** — a
+beautiful native front-end for your Plex or Jellyfin server (and plain SMB
+shares) with hardware-decoded 4K HDR playback. A Windows port is being
+explored (see [TODO.md](TODO.md)).
 
 ![Library](docs/library.png)
 

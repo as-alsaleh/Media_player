@@ -6,10 +6,9 @@ Rust engine's surface against what the Swift apps actually call.
 
 ## Apple — feature gaps
 
-- [ ] **Wire up Trakt, or delete it.** `core/mediacore/src/trakt.rs` implements
-  device auth, token exchange and scrobbling, and `streamer.rs` registers
-  `/trakt/login/start`, `/trakt/login/poll`, `/trakt/scrobble`. Nothing in
-  `apps/` references Trakt at all — the whole integration is unreachable.
+- [x] **Wire up Trakt, or delete it.** Deleted — Trakt now requires paid VIP to
+  register API apps, so the decision was to skip it entirely. `trakt.rs`, its
+  routes and handlers are removed.
 - [ ] **Settings entry point on iOS/tvOS.** `iOSApp.swift` shows
   `OnboardingView` when unconfigured and `BrowseView` once configured, with no
   route to `SettingsView` — even though `project.yml` compiles it into both
@@ -38,11 +37,10 @@ Rust engine's surface against what the Swift apps actually call.
 
 ## Apple — hardening
 
-- [ ] **Merge `harden-frozen-builds`.** Pushed, unmerged, uncompiled. Contains
-  the `rustls-tls-native-roots` change and the `mpv_initialize` fallback.
-- [ ] **Surface `initError` in the player UI.** `MPVPlayer` sets it when both
-  render passes fail; nothing reads it, so a total init failure is still a
-  black window.
+- [x] **Merge `harden-frozen-builds`.** Merged; compiles on all three platforms
+  and `cargo test` passes with `rustls-tls-native-roots`.
+- [x] **Surface `initError` in the player UI.** The player overlay now shows a
+  "Playback engine failed to start" card with the mpv error and a Close button.
 - [ ] **Fetch the TMDB image base from `/configuration`.** `tmdb.rs:6`
   hardcodes `https://image.tmdb.org/t/p`. TMDB documents that clients should
   read it, precisely so they can move the CDN.
