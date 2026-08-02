@@ -1,8 +1,8 @@
 # mediaplayer
 
-An open-source, Infuse-style media player for **macOS, iOS and tvOS** — a
+An open-source, media player for **macOS, iOS and tvOS** — a
 beautiful native front-end for your Plex server (and plain SMB shares) with
-hardware-decoded 4K HDR playback.
+hardware-decoded 4K HDR playback. Maybe also for windows in the future
 
 ![Library](docs/library.png)
 
