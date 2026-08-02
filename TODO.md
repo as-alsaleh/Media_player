@@ -6,6 +6,26 @@ Rust engine's surface against what the Swift apps actually call.
 
 ## User-reported issues (2026-08-02) — fix first
 
+- [ ] **New episodes of an existing show never reach Recently Added / hero.**
+  Root-caused live: show rows sort by Plex's show-level `addedAt`, which is
+  stamped when the show first entered the library — adding a whole season
+  later (Brickleberry: 1 old episode → 36) doesn't bump it, so the "new"
+  show is invisible on Home (it IS in the TV Shows grid with all episodes;
+  the engine serves everything). Fix: thread `added_at` through episodes
+  (PlexEpisode/JfEpisode/EpisodeOut/LibraryEpisode — Plex item field is
+  already parsed; Jellyfin needs DateCreated in the episodes Fields) and
+  rank shows in Recently Added + hero by max(show added_at, newest episode
+  added_at). Partial engine work was started then parked — check git status
+  before beginning.
+- [ ] **Fullscreen regression: video renders only in a small top-right
+  region.** Same symptom family as the fixed minimize→restore→fullscreen
+  MoltenVK drawable-size bug (GuardedMetalLayer + vf-null reconfig poke in
+  PlayerView.swift / MPVPlayer.refreshRenderSize). Reproduce the exact
+  sequence (user hit it during normal fullscreen use today), check whether
+  some resize path misses the debounced refreshRenderSize() poke — e.g.
+  fullscreen straight from a freshly opened player, display sleep/wake, or
+  the always-mounted-player change altering when layout() fires.
+
 - [ ] **Context menu on library items.** Right-click (macOS) / long-press
   (iOS/tvOS) on a poster or Continue Watching card should offer the regular
   options: Remove from Continue Watching, Mark watched / Mark unwatched,
