@@ -1331,6 +1331,29 @@ struct ContinueCard: View {
 // MARK: - Detail sheets
 
 /// Movie page: backdrop, play/resume, rating stars, watched toggle.
+/// Critic (Rotten Tomatoes on Plex) and audience scores as compact badges.
+/// Scores arrive 0–10; shown as percentages, hidden when absent.
+struct RatingBadges: View {
+    let critic: Double?
+    let audience: Double?
+
+    var body: some View {
+        if let critic {
+            HStack(spacing: 3) {
+                Image(systemName: "rosette")
+                    .foregroundStyle(critic >= 6 ? .green : .orange)
+                Text("\(Int((critic * 10).rounded()))%")
+            }
+        }
+        if let audience {
+            HStack(spacing: 3) {
+                Image(systemName: "person.2.fill")
+                Text("\(Int((audience * 10).rounded()))%")
+            }
+        }
+    }
+}
+
 struct MovieDetailSheet: View {
     let movie: StreamerManager.LibraryMovie
     @ObservedObject var streamer: StreamerManager
@@ -1377,6 +1400,8 @@ struct MovieDetailSheet: View {
                         HStack(spacing: 10) {
                             if let year = movie.year { Text(String(year)) }
                             if let dur = movie.duration_secs { Text("\(Int(dur) / 60) min") }
+                            RatingBadges(critic: movie.critic_rating,
+                                         audience: movie.audience_rating)
                             if watched {
                                 Label("Watched", systemImage: "checkmark.circle.fill")
                             }
@@ -1563,6 +1588,8 @@ struct ShowDetailSheet: View {
                     Text("SERIES")
                     Text("\(seasons.count == 1 ? "1 season" : "\(seasons.count) seasons")")
                     Text("\(show.episode_count) episodes")
+                    RatingBadges(critic: show.critic_rating,
+                                 audience: show.audience_rating)
                 }
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.8))

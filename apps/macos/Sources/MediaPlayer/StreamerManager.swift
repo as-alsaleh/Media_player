@@ -186,6 +186,9 @@ final class StreamerManager: ObservableObject {
         let duration_secs: Double?
         let tmdb_id: UInt64?
         let added_at: UInt64?
+        /// 0–10 (Rotten Tomatoes critic score on most Plex servers).
+        let critic_rating: Double?
+        let audience_rating: Double?
         var id: String { uid }
     }
 
@@ -198,6 +201,8 @@ final class StreamerManager: ObservableObject {
         let overview: String?
         let source: String
         let added_at: UInt64?
+        let critic_rating: Double?
+        let audience_rating: Double?
         var id: String { uid }
     }
 

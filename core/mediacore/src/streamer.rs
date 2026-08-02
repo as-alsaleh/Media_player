@@ -57,6 +57,8 @@ struct MovieOut {
     duration_secs: Option<f64>,
     tmdb_id: Option<u64>,
     added_at: Option<u64>,
+    critic_rating: Option<f64>,
+    audience_rating: Option<f64>,
 }
 
 /// Loose identity for cross-source dedup: lowercase alphanumerics only.
@@ -77,6 +79,8 @@ struct ShowOut {
     overview: Option<String>,
     source: &'static str,
     added_at: Option<u64>,
+    critic_rating: Option<f64>,
+    audience_rating: Option<f64>,
 }
 
 #[derive(serde::Serialize)]
@@ -290,6 +294,8 @@ async fn library_movies(State(st): State<AppState>) -> Response {
                     duration_secs: None,
                     tmdb_id: None,
                     added_at: None,
+                    critic_rating: None,
+                    audience_rating: None,
                 },
             );
         }
@@ -315,6 +321,8 @@ async fn library_movies(State(st): State<AppState>) -> Response {
                     duration_secs: m.duration_secs,
                     tmdb_id: m.tmdb_id,
                     added_at: m.added_at,
+                    critic_rating: m.critic_rating,
+                    audience_rating: m.audience_rating,
                 },
             );
         }
@@ -341,6 +349,8 @@ async fn library_movies(State(st): State<AppState>) -> Response {
                     duration_secs: m.duration_secs,
                     tmdb_id: m.tmdb_id,
                     added_at: m.added_at,
+                    critic_rating: m.critic_rating,
+                    audience_rating: m.audience_rating,
                 },
             );
         }
@@ -462,6 +472,8 @@ async fn library_shows(State(st): State<AppState>) -> Response {
                     overview: s.overview,
                     source: "local",
                     added_at: None,
+                    critic_rating: None,
+                    audience_rating: None,
                 },
             );
         }
@@ -479,6 +491,8 @@ async fn library_shows(State(st): State<AppState>) -> Response {
                     overview: s.overview,
                     source: "plex",
                     added_at: s.added_at,
+                    critic_rating: s.critic_rating,
+                    audience_rating: s.audience_rating,
                 },
             );
         }
@@ -496,6 +510,8 @@ async fn library_shows(State(st): State<AppState>) -> Response {
                     overview: s.overview,
                     source: "jellyfin",
                     added_at: s.added_at,
+                    critic_rating: s.critic_rating,
+                    audience_rating: s.audience_rating,
                 },
             );
         }

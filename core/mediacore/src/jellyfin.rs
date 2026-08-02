@@ -32,6 +32,10 @@ pub struct JfMovie {
     pub duration_secs: Option<f64>,
     pub tmdb_id: Option<u64>,
     pub added_at: Option<u64>,
+    /// Critic score 0–10 (Jellyfin stores CriticRating as 0–100).
+    pub critic_rating: Option<f64>,
+    /// Community score 0–10.
+    pub audience_rating: Option<f64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -44,6 +48,8 @@ pub struct JfShow {
     pub overview: Option<String>,
     pub tmdb_id: Option<u64>,
     pub added_at: Option<u64>,
+    pub critic_rating: Option<f64>,
+    pub audience_rating: Option<f64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -129,6 +135,10 @@ struct JfItem {
     recursive_count: Option<u32>,
     #[serde(rename = "DateCreated")]
     date_created: Option<String>,
+    #[serde(rename = "CommunityRating")]
+    community_rating: Option<f64>,
+    #[serde(rename = "CriticRating")]
+    critic_rating: Option<f64>,
     #[serde(rename = "ProviderIds", default)]
     provider_ids: HashMap<String, String>,
     #[serde(rename = "ImageTags", default)]
@@ -312,7 +322,7 @@ impl JellyfinSource {
 
     pub async fn movies(&self) -> Vec<JfMovie> {
         self.items(
-            "IncludeItemTypes=Movie&Recursive=true&Fields=Overview,Path,ProviderIds,DateCreated",
+            "IncludeItemTypes=Movie&Recursive=true&Fields=Overview,Path,ProviderIds,DateCreated,CommunityRating,CriticRating",
         )
         .await
         .into_iter()
@@ -336,6 +346,8 @@ impl JellyfinSource {
                 duration_secs: i.runtime_ticks.map(|t| t as f64 / 1e7),
                 tmdb_id: i.provider_ids.get("Tmdb").and_then(|v| v.parse().ok()),
                 added_at: iso_to_epoch(&i.date_created),
+                critic_rating: i.critic_rating.map(|r| r / 10.0),
+                audience_rating: i.community_rating,
                 id: i.id,
             }
         })
@@ -344,7 +356,7 @@ impl JellyfinSource {
 
     pub async fn shows(&self) -> Vec<JfShow> {
         self.items(
-            "IncludeItemTypes=Series&Recursive=true&Fields=Overview,ProviderIds,DateCreated,RecursiveItemCount",
+            "IncludeItemTypes=Series&Recursive=true&Fields=Overview,ProviderIds,DateCreated,RecursiveItemCount,CommunityRating,CriticRating",
         )
         .await
         .into_iter()
@@ -357,6 +369,8 @@ impl JellyfinSource {
             overview: i.overview,
             tmdb_id: i.provider_ids.get("Tmdb").and_then(|v| v.parse().ok()),
             added_at: iso_to_epoch(&i.date_created),
+            critic_rating: i.critic_rating.map(|r| r / 10.0),
+            audience_rating: i.community_rating,
             id: i.id,
         })
         .collect()

@@ -19,13 +19,11 @@ Rust engine's surface against what the Swift apps actually call.
 - [ ] **Jellyfin feature parity with Plex.** Plex has `/markers`, `/subtitles`,
   `/preview` and `/rate`; Jellyfin only has `/users`, `/login`, `/progress`,
   `/watched`. No skip-intro, trickplay, subtitle listing or ratings on Jellyfin.
-- [ ] **Show critic/audience ratings — no new API needed.** `plex.rs` parses
-  `ratingKey` (the item identifier) but not Plex's `rating`, `audienceRating`
-  and `ratingImage` fields, which carry Rotten Tomatoes critic and audience
-  scores that Plex already licenses and serves. Jellyfin has the equivalent in
-  `CommunityRating` and `CriticRating`. Free, no key, no terms to accept —
-  just parse and display. Only fall back to OMDb (free tier 1,000 req/day) for
-  the local/SMB library where there's no server supplying metadata.
+- [x] **Show critic/audience ratings.** Plex `rating`/`audienceRating` and
+  Jellyfin `CriticRating`/`CommunityRating` are parsed, served on
+  `/library/movies` and `/library/shows`, and shown as rosette/audience badges
+  in the movie and show detail sheets (verified live: 78/82 movies had RT
+  scores). OMDb fallback for the SMB-only library remains open.
 - [ ] **Offline downloads.** README roadmap. No download routes, no local media
   store, no UI. Needs a download endpoint, a completed-downloads index,
   playback from local path, and manage/delete UI.

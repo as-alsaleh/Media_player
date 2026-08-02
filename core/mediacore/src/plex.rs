@@ -33,6 +33,10 @@ pub struct PlexMovie {
     pub duration_secs: Option<f64>,
     pub tmdb_id: Option<u64>,
     pub added_at: Option<u64>,
+    /// Critic score 0–10 (Rotten Tomatoes on most servers).
+    pub critic_rating: Option<f64>,
+    /// Audience score 0–10.
+    pub audience_rating: Option<f64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -59,6 +63,8 @@ pub struct PlexShow {
     pub overview: Option<String>,
     pub tmdb_id: Option<u64>,
     pub added_at: Option<u64>,
+    pub critic_rating: Option<f64>,
+    pub audience_rating: Option<f64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -134,6 +140,9 @@ struct Item {
     last_viewed_at: Option<u64>,
     #[serde(rename = "addedAt")]
     added_at: Option<u64>,
+    rating: Option<f64>,
+    #[serde(rename = "audienceRating")]
+    audience_rating: Option<f64>,
     duration: Option<u64>,
     #[serde(rename = "Marker", default)]
     markers: Vec<MarkerRaw>,
@@ -391,6 +400,8 @@ impl PlexSource {
                     duration_secs: item.duration_secs(),
                     tmdb_id: item.tmdb_id(),
                     added_at: item.added_at,
+                    critic_rating: item.rating,
+                    audience_rating: item.audience_rating,
                 });
             }
         }
@@ -414,6 +425,8 @@ impl PlexSource {
                     overview: item.summary.clone(),
                     tmdb_id: item.tmdb_id(),
                     added_at: item.added_at,
+                    critic_rating: item.rating,
+                    audience_rating: item.audience_rating,
                 });
             }
         }
