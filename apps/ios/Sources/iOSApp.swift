@@ -364,6 +364,29 @@ struct PlayerScreen: View {
         #if os(iOS)
         .statusBarHidden(true)
         #endif
+        #if os(tvOS)
+        // Siri Remote: Menu backs out (controls first, then the player),
+        // play/pause does what it says, select toggles the control bar.
+        .onExitCommand {
+            if controlsVisible {
+                withAnimation { controlsVisible = false }
+            } else {
+                onClose()
+            }
+        }
+        .onPlayPauseCommand { player.togglePause() }
+        .focusable()
+        .onMoveCommand { direction in
+            switch direction {
+            case .left: player.seek(to: max(player.timePos - Double(Prefs.skipBackSecs), 0))
+            case .right: player.seek(to: player.timePos + Double(Prefs.skipForwardSecs))
+            case .down:
+                withAnimation { controlsVisible = true }
+                scheduleHide()
+            default: break
+            }
+        }
+        #endif
         .sheet(isPresented: $showSettings) {
             #if os(iOS)
             PlayerSettingsView(player: player)

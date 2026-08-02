@@ -17,3 +17,4 @@ build/
 *.xcframework
 apps/ios/MediaPlayeriOS.xcodeproj/
 apps/ios/build-sim/
+apps/ios/build-tv/

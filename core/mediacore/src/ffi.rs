@@ -47,11 +47,19 @@ pub fn start_streamer(
         let fs = if server.is_empty() {
             None
         } else {
-            Some(
-                SmbFs::connect(&server, &share, &username, &password)
-                    .await
-                    .map_err(|e| CoreError::Connect { msg: e.to_string() })?,
-            )
+            match SmbFs::connect(&server, &share, &username, &password).await {
+                Ok(fs) => Some(fs),
+                // A dead/stale SMB share must not take down the whole engine
+                // when another source (Plex/Jellyfin) can still serve the
+                // library. Only SMB-only setups treat it as fatal.
+                Err(e) if plex_url.is_none() && jellyfin_user_token.is_none() => {
+                    return Err(CoreError::Connect { msg: e.to_string() });
+                }
+                Err(e) => {
+                    tracing::warn!("smb connect failed, continuing without: {e}");
+                    None
+                }
+            }
         };
         let mut streamer = Streamer::new(fs);
         if let Some(db) = &db_path {

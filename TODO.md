@@ -39,9 +39,17 @@ Rust engine's surface against what the Swift apps actually call.
   download buttons, poster caching for fully-offline artwork.
 - [ ] **Emby source.** README roadmap. `jellyfin.rs` already sends
   `X-Emby-Authorization`, so much of the client may be reusable.
-- [ ] **tvOS remote polish.** README roadmap. The shared UI was built
-  mouse/trackpad-first — `BrowseView.swift:546` is an `NSEvent` scroll catcher
-  with no tvOS equivalent. Needs a focus-engine pass.
+- [x] **tvOS remote polish.** Verified in the Apple TV 4K simulator with the
+  virtual Siri Remote: focus moves across tabs/hero/cards, select plays with
+  resume, video renders (gpu-next over MoltenVK), and the player now handles
+  the remote properly — Menu hides controls then exits (`onExitCommand`),
+  play/pause button works (`onPlayPauseCommand`), left/right seek by the
+  configured skip amounts, down reveals controls. The pass also flushed out
+  two real bugs, both fixed: `rustls-tls-native-roots` alone left iOS/tvOS
+  with zero CAs (every TLS fetch silently failed — webpki snapshot re-added
+  as fallback), and a stale SMB credential hard-killed the whole engine even
+  when Plex/Jellyfin could serve (now degrades with a warning). Remaining
+  nice-to-have: hero paging directly from the remote.
 
 ## Apple — hardening
 
