@@ -37,8 +37,10 @@ Rust engine's surface against what the Swift apps actually call.
   points work offline. Verified end-to-end: 379 MB episode downloaded and
   played back from disk with its resume point. Follow-ups: per-episode
   download buttons, poster caching for fully-offline artwork.
-- [ ] **Emby source.** README roadmap. `jellyfin.rs` already sends
-  `X-Emby-Authorization`, so much of the client may be reusable.
+- [ ] **Emby source.** *Deferred — needs an Emby instance to verify against.*
+  `jellyfin.rs` already sends `X-Emby-Authorization` and the endpoints used
+  (auth, items, sessions, played-items, media segments, subtitles) are
+  API-compatible on Emby, so this is likely config-only when a server exists.
 - [x] **tvOS remote polish.** Verified in the Apple TV 4K simulator with the
   virtual Siri Remote: focus moves across tabs/hero/cards, select plays with
   resume, video renders (gpu-next over MoltenVK), and the player now handles
@@ -75,21 +77,24 @@ Rust engine's surface against what the Swift apps actually call.
 
 ## Apple — shipping
 
-- [ ] **Notarized DMG pipeline.** *Highest-leverage item on this list.*
+- [ ] **Notarized DMG pipeline.** *Blocked on the user: needs an Apple
+  Developer ID certificate ($99/yr membership).*
   `bundle-macos.sh` produces an `.app` with no signing, notarization, stapling
   or DMG. Turns "install Rust and Xcode, then build" into "download and run".
   Developer ID certs last 5 years and notarization tickets don't expire, so one
   notarized build outlives a lapsed membership. Bundle the MPVKit LGPL texts.
-- [ ] **iOS device signing in `project.yml`.** Both targets set
-  `CODE_SIGNING_ALLOWED: "NO"`, which blocks device installs. Set it in
-  `project.yml`, not the Xcode UI — XcodeGen regenerates and wipes UI config.
+- [ ] **iOS device signing in `project.yml`.** *Blocked on the user: needs
+  their Apple `DEVELOPMENT_TEAM` id.* When available, set it plus
+  `CODE_SIGNING_ALLOWED: "YES"` in `project.yml` (not the Xcode UI — XcodeGen
+  regenerates and wipes UI config).
 - [x] **Bring-your-own TMDB key in settings.** Settings → Files has a "TMDB
   (Artwork for SMB Libraries)" card writing the `tmdbApiKey` default the
   engine already reads, with the terms note.
-- [ ] **App Store submission materials.** Demo server + credentials in review
-  notes (reviewers can't test a client with no server — the most common
-  rejection for this category); privacy label "Data Not Collected"; describe it
-  as "connect to your Plex or Jellyfin server", not "watch movies and TV".
+- [x] **App Store submission materials.** Drafted in
+  [docs/app-store.md](app-store.md): metadata, description, privacy label,
+  review-notes template with demo-server guidance, licensing position and a
+  submission checklist. Only the demo server itself and the paid membership
+  remain.
 
 ## Windows port
 
