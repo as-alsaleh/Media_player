@@ -13,10 +13,8 @@ struct RootView: View {
     @StateObject private var streamer = StreamerManager()
     @StateObject private var player = MPVPlayer()
 
-    @AppStorage("server") private var server = ""
-    @AppStorage("share") private var share = ""
-    @AppStorage("username") private var username = ""
-    @AppStorage("smbPassword") private var storedPassword = ""
+    // SMB config lives in ShareStore: server/share/user in defaults, the
+    // password in the Keychain (parity with macOS).
 
     @State private var showPlayer = false
     @State private var nowPlaying = ""
@@ -53,6 +51,7 @@ struct RootView: View {
                 })
         }
         .onAppear {
+            migrateLegacySMBConfig()
             streamer.onUserSwitched = { startCore() }
             startCore()
         }
@@ -60,16 +59,30 @@ struct RootView: View {
         .preferredColorScheme(.dark)
     }
 
-    private var password: String {
-        ProcessInfo.processInfo.environment["MEDIAPLAYER_PASSWORD"] ?? storedPassword
-    }
-
     private var needsOnboarding: Bool {
         _ = refreshTick
         let d = UserDefaults.standard
         let hasPlex = !(d.string(forKey: "plexServerURL") ?? (ProcessInfo.processInfo.environment["MEDIAPLAYER_PLEX_URL"] ?? "")).isEmpty
         let hasJellyfin = !(d.string(forKey: "jellyfinUserToken") ?? "").isEmpty
-        return !hasPlex && !hasJellyfin && server.isEmpty
+        return !hasPlex && !hasJellyfin && ShareStore.load() == nil
+    }
+
+    /// Pre-Keychain builds kept the SMB config (and password, in plaintext)
+    /// in UserDefaults. Move it into ShareStore/Keychain once and scrub the
+    /// plaintext copy.
+    private func migrateLegacySMBConfig() {
+        let d = UserDefaults.standard
+        let legacyPassword = d.string(forKey: "smbPassword") ?? ""
+        if ShareStore.load() == nil,
+           let server = d.string(forKey: "server"), !server.isEmpty {
+            let config = ShareConfig(server: server,
+                                     share: d.string(forKey: "share") ?? "",
+                                     username: d.string(forKey: "username") ?? "")
+            ShareStore.save(config, password: legacyPassword)
+        } else if let config = ShareStore.load(), !legacyPassword.isEmpty {
+            ShareStore.save(config, password: legacyPassword)
+        }
+        d.removeObject(forKey: "smbPassword")
     }
 
     private func startCore() {
@@ -89,7 +102,10 @@ struct RootView: View {
             ?? ProcessInfo.processInfo.environment["MEDIAPLAYER_TMDB_KEY"]
         let jellyfinURL = defaults.string(forKey: "jellyfinURL")
         let jellyfinKey = defaults.string(forKey: "jellyfinApiKey")
-        let (server, share, username, password) = (server, share, username, password)
+        let saved = ShareStore.load()
+        let (server, share, username) = (saved?.server ?? "", saved?.share ?? "", saved?.username ?? "")
+        let password = ProcessInfo.processInfo.environment["MEDIAPLAYER_PASSWORD"]
+            ?? saved.flatMap { ShareStore.password(for: $0) } ?? ""
 
         Task.detached(priority: .userInitiated) {
             do {

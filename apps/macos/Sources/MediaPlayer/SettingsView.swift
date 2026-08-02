@@ -280,8 +280,10 @@ struct SettingsView: View {
                 Button {
                     let config = ShareConfig(server: smbServer, share: smbShare, username: smbUser)
                     ShareStore.save(config, password: smbPassword)
+                    #if os(macOS)
                     // Dev-build escape hatch: unsigned rebuilds stall Keychain ACL prompts.
                     UserDefaults.standard.set(smbPassword, forKey: "smbPassword")
+                    #endif
                     dismiss()
                     onSaved()
                 } label: {

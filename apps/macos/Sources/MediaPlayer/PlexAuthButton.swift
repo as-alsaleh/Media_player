@@ -226,6 +226,7 @@ struct OnboardingView: View {
     @ObservedObject var streamer: StreamerManager
     let onDone: () -> Void
     @State private var showJellyfin = false
+    @State private var showSettings = false
 
     var body: some View {
         ZStack {
@@ -252,11 +253,25 @@ struct OnboardingView: View {
                     .foregroundStyle(.white)
                 }
                 .buttonStyle(.plain)
+
+                Button {
+                    showSettings = true
+                } label: {
+                    Text("Or connect an SMB share in Settings")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(.white.opacity(0.45))
+                        .underline()
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
             }
             .padding(40)
         }
         .sheet(isPresented: $showJellyfin) {
             JellyfinAuthView(streamer: streamer, onDone: onDone)
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView(onSaved: onDone, streamer: streamer)
         }
         .preferredColorScheme(.dark)
     }

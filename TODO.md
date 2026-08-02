@@ -9,13 +9,13 @@ Rust engine's surface against what the Swift apps actually call.
 - [x] **Wire up Trakt, or delete it.** Deleted — Trakt now requires paid VIP to
   register API apps, so the decision was to skip it entirely. `trakt.rs`, its
   routes and handlers are removed.
-- [ ] **Settings entry point on iOS/tvOS.** `iOSApp.swift` shows
-  `OnboardingView` when unconfigured and `BrowseView` once configured, with no
-  route to `SettingsView` — even though `project.yml` compiles it into both
-  targets. After first run you can't change server, sign out or switch accounts.
-- [ ] **iOS SMB password into the Keychain.** Currently
-  `@AppStorage("smbPassword")` — plain UserDefaults. macOS does this correctly
-  via `ShareStore.swift` and Security.framework.
+- [x] **Settings entry point on iOS/tvOS.** The shared `BrowseView` gear was
+  already live on all platforms (verified in the iPhone simulator); what was
+  missing was a route from onboarding — added "Or connect an SMB share in
+  Settings" beneath the sign-in buttons.
+- [x] **iOS SMB password into the Keychain.** iOS now uses `ShareStore`
+  (Keychain) like macOS, migrates legacy plaintext config on first run and
+  scrubs the old default. The plaintext dev-build escape hatch is macOS-only.
 - [ ] **Jellyfin feature parity with Plex.** Plex has `/markers`, `/subtitles`,
   `/preview` and `/rate`; Jellyfin only has `/users`, `/login`, `/progress`,
   `/watched`. No skip-intro, trickplay, subtitle listing or ratings on Jellyfin.

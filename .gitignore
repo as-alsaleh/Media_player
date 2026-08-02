@@ -16,3 +16,4 @@ Cargo.lock.bak
 build/
 *.xcframework
 apps/ios/MediaPlayeriOS.xcodeproj/
+apps/ios/build-sim/
