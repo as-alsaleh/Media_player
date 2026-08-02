@@ -310,9 +310,17 @@ final class MPVPlayer: ObservableObject {
                 }
                 if end.reason == MPV_END_FILE_REASON_ERROR {
                     // Transient server error (e.g. Plex 503) — retry shortly.
+                    // Capture the position now: the `start` property still
+                    // holds the resume point from load time, and reusing it
+                    // would rewind hours of playback.
+                    let position = timePos
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
                         guard let self, self.retriesLeft > 0, let url = self.currentURL else { return }
+                        // The UI pauses the player when it closes — an error
+                        // arriving then must not restart audio behind it.
+                        guard !self.isPaused else { return }
                         self.retriesLeft -= 1
+                        self.setString("start", position > 1 ? String(format: "+%.1f", position) : "none")
                         self.command("loadfile", url.isFileURL ? url.path : url.absoluteString)
                         self.setProperty("pause", flag: false)
                     }

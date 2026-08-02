@@ -26,29 +26,38 @@ struct RootView: View {
     private let progressTimer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        Group {
-            if needsOnboarding {
-                OnboardingView(streamer: streamer) {
-                    refreshTick += 1
-                    startCore()
+        ZStack {
+            Group {
+                if needsOnboarding {
+                    OnboardingView(streamer: streamer) {
+                        refreshTick += 1
+                        startCore()
+                    }
+                } else {
+                    BrowseView(streamer: streamer, refreshTick: refreshTick,
+                               onReconnect: startCore, onPlay: startPlayback)
                 }
-            } else {
-                BrowseView(streamer: streamer, refreshTick: refreshTick,
-                           onReconnect: startCore, onPlay: startPlayback)
             }
-        }
-        .fullScreenCover(isPresented: $showPlayer) {
+
+            // The player stays mounted (hidden, not removed) so mpv's render
+            // layer survives across plays — tearing it down would leave mpv
+            // pointing at a deallocated CAMetalLayer on the next playback.
+            // Same approach as the macOS app.
             PlayerScreen(
                 player: player,
                 streamer: streamer,
                 title: nowPlaying,
                 markers: markers,
+                active: showPlayer,
                 onClose: {
                     if !player.isPaused { player.togglePause() }
                     saveProgress()
                     showPlayer = false
                     refreshTick += 1
                 })
+                .opacity(showPlayer ? 1 : 0)
+                .allowsHitTesting(showPlayer)
+                .ignoresSafeArea()
         }
         .onAppear {
             migrateLegacySMBConfig()
@@ -141,14 +150,27 @@ struct RootView: View {
         player.load(url: url)
 
         markers = []
+        // Guard every async fetch against title switches mid-flight.
         if path.hasPrefix("plex:") {
             let key = String(path.dropFirst("plex:".count))
-            Task { markers = await streamer.plexMarkers(ratingKey: key) }
-            Task { await attachSubtitles(await streamer.plexSubtitles(ratingKey: key)) }
+            Task {
+                let m = await streamer.plexMarkers(ratingKey: key)
+                if nowPlayingPath == path { markers = m }
+            }
+            Task {
+                await attachSubtitles(await streamer.plexSubtitles(ratingKey: key),
+                                      forPath: path)
+            }
         } else if path.hasPrefix("jf:") {
             let item = String(path.dropFirst("jf:".count))
-            Task { markers = await streamer.jellyfinMarkers(itemId: item) }
-            Task { await attachSubtitles(await streamer.jellyfinSubtitles(itemId: item)) }
+            Task {
+                let m = await streamer.jellyfinMarkers(itemId: item)
+                if nowPlayingPath == path { markers = m }
+            }
+            Task {
+                await attachSubtitles(await streamer.jellyfinSubtitles(itemId: item),
+                                      forPath: path)
+            }
         }
 
         player.onFileEnded = { [self] in
@@ -163,11 +185,14 @@ struct RootView: View {
         }
     }
 
-    private func attachSubtitles(_ subs: [StreamerManager.PlexSubtitle]) async {
+    private func attachSubtitles(_ subs: [StreamerManager.PlexSubtitle],
+                                 forPath path: String) async {
         guard !subs.isEmpty else { return }
         for _ in 0..<40 where player.duration <= 0 {
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
+        // The wait may have been satisfied by a different file.
+        guard nowPlayingPath == path else { return }
         let pref = Prefs.langSubtitles.split(separator: ",").map(String.init)
         var selected = false
         for sub in subs {
@@ -204,6 +229,9 @@ struct PlayerScreen: View {
     @ObservedObject var streamer: StreamerManager
     let title: String
     let markers: [StreamerManager.PlexMarker]
+    /// False while the (always-mounted) player is hidden behind the browse
+    /// UI — gates tvOS focus so a hidden player can't trap the remote.
+    var active: Bool = true
     let onClose: () -> Void
 
     @State private var controlsVisible = true
@@ -375,7 +403,9 @@ struct PlayerScreen: View {
             }
         }
         .onPlayPauseCommand { player.togglePause() }
-        .focusable()
+        // Focusable only while fronted AND the control bar is hidden — when
+        // controls are up, focus belongs to their buttons, not this trap.
+        .focusable(active && !controlsVisible)
         .onMoveCommand { direction in
             switch direction {
             case .left: player.seek(to: max(player.timePos - Double(Prefs.skipBackSecs), 0))

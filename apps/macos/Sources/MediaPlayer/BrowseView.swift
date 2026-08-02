@@ -298,6 +298,8 @@ struct BrowseView: View {
                 .padding(10)
                 BrowserView(streamer: streamer) { url, name in
                     showFiles = false
+                    NowPlaying.nextEpisode = nil
+                    NowPlaying.nextLabel = nil
                     let key = sharePath(from: url)
                     onPlay(url, name, key, WatchProgress.position(for: key))
                 }
@@ -431,11 +433,13 @@ struct BrowseView: View {
                 .buttonStyle(.plain)
                 .help("Browse files")
             }
-            Button { showDownloads = true } label: {
-                Image(systemName: "arrow.down.circle")
+            if !isRestrictedProfile {
+                Button { showDownloads = true } label: {
+                    Image(systemName: "arrow.down.circle")
+                }
+                .buttonStyle(.plain)
+                .help("Downloads")
             }
-            .buttonStyle(.plain)
-            .help("Downloads")
             Button { showSettings = true } label: {
                 Image(systemName: "gearshape")
             }
@@ -1424,6 +1428,8 @@ struct DownloadsSheet: View {
             if entry.state == "done" {
                 Button {
                     dismiss()
+                    NowPlaying.nextEpisode = nil
+                    NowPlaying.nextLabel = nil
                     onPlay(URL(fileURLWithPath: entry.file), entry.title,
                            entry.key, WatchProgress.position(for: entry.key))
                 } label: {
@@ -1559,6 +1565,10 @@ struct MovieDetailSheet: View {
                         Button {
                             if let url = streamer.resolveStream(movie.stream_url) {
                                 dismiss()
+                                // A movie never has a "next episode" — clear
+                                // any leftover from a previous show.
+                                NowPlaying.nextEpisode = nil
+                                NowPlaying.nextLabel = nil
                                 let resume = movie.view_offset_secs
                                     ?? WatchProgress.position(for: movie.progress_key)
                                 onPlay(url, movie.title, movie.progress_key, resume)
@@ -1677,6 +1687,8 @@ struct ShowDetailSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedSeason: UInt16?
+    /// Keys queued for download from this sheet (shows the checkmark).
+    @State private var downloadedKeys: Set<String> = []
 
     private var seasons: [(UInt16, [StreamerManager.LibraryEpisode])] {
         Dictionary(grouping: episodes, by: \.season)
@@ -1840,6 +1852,22 @@ struct ShowDetailSheet: View {
                                 .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
                         }
+                        Button {
+                            let url = streamer.resolveStream(ep.stream_url)?.absoluteString
+                                ?? ep.stream_url
+                            streamer.startDownload(
+                                key: ep.progress_key, url: url,
+                                title: "\(show.name) S\(ep.season)E\(ep.episode)",
+                                poster: ep.thumb_url)
+                            downloadedKeys.insert(ep.progress_key)
+                        } label: {
+                            Image(systemName: downloadedKeys.contains(ep.progress_key)
+                                  ? "checkmark.circle" : "arrow.down.circle")
+                                .font(.system(size: 15))
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Download for offline")
                     }
                     if let overview = ep.overview, !overview.isEmpty {
                         Text(overview)

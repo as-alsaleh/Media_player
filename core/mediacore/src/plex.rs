@@ -573,10 +573,12 @@ impl PlexSource {
             .ok()?;
         let account_token = resp.json::<Switched>().await.ok()?.auth_token;
 
-        // Exchange for the per-user access token of *this* server.
-        self.server_access_token(&account_token)
-            .await
-            .or(Some(account_token))
+        // Exchange for the per-user access token of *this* server. No
+        // fallback to the account token: the media server resolves that to
+        // the OWNER, which would silently hand a restricted profile (e.g. a
+        // kids account) the full library. Failing the switch is safer than
+        // succeeding with escalated access.
+        self.server_access_token(&account_token).await
     }
 
     /// Our server's machineIdentifier.

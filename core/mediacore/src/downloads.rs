@@ -7,7 +7,9 @@
 //! progress_key the online item uses so resume points carry over.
 
 use serde::{Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -28,6 +30,8 @@ pub struct DownloadEntry {
 pub struct DownloadStore {
     dir: PathBuf,
     entries: Mutex<HashMap<String, DownloadEntry>>,
+    /// Live transfer tasks, so delete can abort an in-flight fetch.
+    tasks: Mutex<HashMap<String, tokio::task::AbortHandle>>,
 }
 
 impl DownloadStore {
@@ -44,7 +48,19 @@ impl DownloadStore {
                 e.state = "error".into();
             }
         }
-        Self { dir, entries: Mutex::new(entries) }
+        // Sweep stale partials from crashed/errored transfers.
+        if let Ok(listing) = std::fs::read_dir(&dir) {
+            for f in listing.flatten() {
+                if f.path().extension().is_some_and(|e| e == "part") {
+                    std::fs::remove_file(f.path()).ok();
+                }
+            }
+        }
+        Self {
+            dir,
+            entries: Mutex::new(entries),
+            tasks: Mutex::new(HashMap::new()),
+        }
     }
 
     fn persist_locked(&self, entries: &HashMap<String, DownloadEntry>) {
@@ -60,6 +76,10 @@ impl DownloadStore {
     }
 
     pub fn delete(&self, key: &str) -> bool {
+        // Abort a live transfer first so it can't recreate files afterwards.
+        if let Some(task) = self.tasks.lock().unwrap().remove(key) {
+            task.abort();
+        }
         let mut entries = self.entries.lock().unwrap();
         let Some(e) = entries.remove(key) else { return false };
         std::fs::remove_file(&e.file).ok();
@@ -88,6 +108,18 @@ impl DownloadStore {
         }
     }
 
+    /// Collision-proof local file name: readable prefix + hash of the raw
+    /// key, so "a/b.mkv" and "a_b.mkv" can't share one file on disk.
+    fn file_name(key: &str, url: &str) -> String {
+        let safe: String = key
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
+        let mut h = DefaultHasher::new();
+        key.hash(&mut h);
+        format!("{safe}-{:08x}.{}", h.finish() as u32, Self::extension(url))
+    }
+
     /// Register the entry and spawn the transfer; returns the initial state.
     /// A key that is already downloading or done is returned unchanged.
     pub fn start(
@@ -97,21 +129,9 @@ impl DownloadStore {
         title: String,
         poster_url: Option<String>,
     ) -> DownloadEntry {
-        {
-            let entries = self.entries.lock().unwrap();
-            if let Some(existing) = entries.get(&key) {
-                if existing.state != "error" {
-                    return existing.clone();
-                }
-            }
-        }
-        let safe: String = key
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-            .collect();
         let file = self
             .dir
-            .join(format!("{safe}.{}", Self::extension(&url)))
+            .join(Self::file_name(&key, &url))
             .to_string_lossy()
             .to_string();
         let entry = DownloadEntry {
@@ -124,20 +144,36 @@ impl DownloadStore {
             state: "downloading".into(),
         };
         {
+            // Check-and-claim under one guard so a double-tap can't spawn
+            // two transfers racing into the same .part file.
             let mut entries = self.entries.lock().unwrap();
+            if let Some(existing) = entries.get(&key) {
+                if existing.state != "error" {
+                    return existing.clone();
+                }
+            }
             entries.insert(key.clone(), entry.clone());
             self.persist_locked(&entries);
         }
 
         let store = Arc::clone(self);
-        tokio::spawn(async move {
+        let task_key = key.clone();
+        let handle = tokio::spawn(async move {
             let ok = store.fetch(&key, &url, &file).await;
+            if !ok {
+                tokio::fs::remove_file(format!("{file}.part")).await.ok();
+            }
             store.update(
                 &key,
                 |e| e.state = if ok { "done".into() } else { "error".into() },
                 true,
             );
+            store.tasks.lock().unwrap().remove(&key);
         });
+        self.tasks
+            .lock()
+            .unwrap()
+            .insert(task_key, handle.abort_handle());
         entry
     }
 

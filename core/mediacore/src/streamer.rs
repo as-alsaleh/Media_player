@@ -797,6 +797,11 @@ async fn stream(
     AxPath(path): AxPath<String>,
     headers: HeaderMap,
 ) -> Response {
+    // Restricted Home profiles must not bypass Plex library permissions by
+    // fetching raw share paths.
+    if st.restricted {
+        return (StatusCode::FORBIDDEN, "restricted profile").into_response();
+    }
     let Some(fs) = &st.fs else {
         return (StatusCode::NOT_IMPLEMENTED, "no file share configured").into_response();
     };
@@ -812,9 +817,28 @@ async fn stream(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| parse_range(v, size));
 
+    // An empty file is a valid (if useless) 200, not a range error.
+    if size == 0 {
+        return Response::builder()
+            .status(StatusCode::OK)
+            .header(header::ACCEPT_RANGES, "bytes")
+            .header(header::CONTENT_LENGTH, 0)
+            .body(Body::empty())
+            .unwrap();
+    }
+    // A Range header that parsed to nothing (e.g. start beyond EOF) is
+    // unsatisfiable — do not fall back to serving the whole file.
+    let had_range_header = headers.get(header::RANGE).is_some();
     let (start, end) = match range {
         Some((s, e)) => (s, e),
-        None => (0, size.saturating_sub(1)),
+        None if had_range_header => {
+            return (
+                StatusCode::RANGE_NOT_SATISFIABLE,
+                [(header::CONTENT_RANGE, format!("bytes */{size}"))],
+            )
+                .into_response();
+        }
+        None => (0, size - 1),
     };
     if start >= size {
         return (

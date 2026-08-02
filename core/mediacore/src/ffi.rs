@@ -47,12 +47,20 @@ pub fn start_streamer(
         let fs = if server.is_empty() {
             None
         } else {
+            // Mirrors the conditions under which the sources are actually
+            // constructed below — a stray token without its URL must not
+            // swallow the SMB error and boot into an empty library.
+            let has_plex = plex_url.is_some() && plex_token.is_some();
+            let has_jellyfin_user = jellyfin_url.is_some()
+                && jellyfin_api_key.is_some()
+                && jellyfin_user_token.as_deref().is_some_and(|t| !t.is_empty())
+                && jellyfin_user_id.as_deref().is_some_and(|u| !u.is_empty());
             match SmbFs::connect(&server, &share, &username, &password).await {
                 Ok(fs) => Some(fs),
                 // A dead/stale SMB share must not take down the whole engine
                 // when another source (Plex/Jellyfin) can still serve the
                 // library. Only SMB-only setups treat it as fatal.
-                Err(e) if plex_url.is_none() && jellyfin_user_token.is_none() => {
+                Err(e) if !has_plex && !has_jellyfin_user => {
                     return Err(CoreError::Connect { msg: e.to_string() });
                 }
                 Err(e) => {

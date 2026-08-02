@@ -282,10 +282,14 @@ struct SettingsView: View {
 
                 Button {
                     let config = ShareConfig(server: smbServer, share: smbShare, username: smbUser)
-                    ShareStore.save(config, password: smbPassword)
-                    #if os(macOS)
+                    // An empty field means "keep the stored password" — saving
+                    // to tweak the server must not wipe the Keychain secret.
+                    let password = smbPassword.isEmpty
+                        ? (ShareStore.password(for: config) ?? "") : smbPassword
+                    ShareStore.save(config, password: password)
+                    #if os(macOS) && DEBUG
                     // Dev-build escape hatch: unsigned rebuilds stall Keychain ACL prompts.
-                    UserDefaults.standard.set(smbPassword, forKey: "smbPassword")
+                    UserDefaults.standard.set(password, forKey: "smbPassword")
                     #endif
                     dismiss()
                     onSaved()

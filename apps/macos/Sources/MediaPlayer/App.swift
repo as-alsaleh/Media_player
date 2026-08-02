@@ -457,17 +457,39 @@ struct ContentView: View {
 
         markers = []
         previewInfo = nil
+        // Every async fetch double-checks it still belongs to the current
+        // item — quickly switching titles must not leave item A's markers,
+        // preview or subtitles attached to item B.
         if path.hasPrefix("plex:") {
             let key = String(path.dropFirst("plex:".count))
-            Task { markers = await streamer.plexMarkers(ratingKey: key) }
-            Task { previewInfo = await streamer.seekPreview(ratingKey: key) }
-            Task { await loadExternalSubtitles(ratingKey: key) }
+            Task {
+                let m = await streamer.plexMarkers(ratingKey: key)
+                if nowPlayingPath == path { markers = m }
+            }
+            Task {
+                let p = await streamer.seekPreview(ratingKey: key)
+                if nowPlayingPath == path { previewInfo = p }
+            }
+            Task {
+                await attachSubtitles(await streamer.plexSubtitles(ratingKey: key),
+                                      forPath: path)
+            }
         } else if path.hasPrefix("jf:") {
             let item = String(path.dropFirst("jf:".count))
-            Task { markers = await streamer.jellyfinMarkers(itemId: item) }
-            Task { previewInfo = await streamer.seekPreview(jellyfinItemId: item) }
-            Task { await attachSubtitles(await streamer.jellyfinSubtitles(itemId: item)) }
+            Task {
+                let m = await streamer.jellyfinMarkers(itemId: item)
+                if nowPlayingPath == path { markers = m }
+            }
+            Task {
+                let p = await streamer.seekPreview(jellyfinItemId: item)
+                if nowPlayingPath == path { previewInfo = p }
+            }
+            Task {
+                await attachSubtitles(await streamer.jellyfinSubtitles(itemId: item),
+                                      forPath: path)
+            }
         }
+        volumeLevel = player.getDouble("volume")
 
         player.onFileEnded = {
             if Prefs.autoPlayNext, let next = NowPlaying.nextEpisode {
@@ -481,16 +503,16 @@ struct ContentView: View {
     /// Attach Plex-managed external subtitles (sidecars, OpenSubtitles agent
     /// downloads) to the current file; auto-select one matching the
     /// preferred subtitle language.
-    private func loadExternalSubtitles(ratingKey: String) async {
-        await attachSubtitles(await streamer.plexSubtitles(ratingKey: ratingKey))
-    }
-
-    private func attachSubtitles(_ subs: [StreamerManager.PlexSubtitle]) async {
+    private func attachSubtitles(_ subs: [StreamerManager.PlexSubtitle],
+                                 forPath path: String) async {
         guard !subs.isEmpty else { return }
         // sub-add needs an open file — wait for the demuxer to come up.
         for _ in 0..<40 where player.duration <= 0 {
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
+        // The wait may have been satisfied by a *different* file if the user
+        // switched titles — never attach subtitles to the wrong item.
+        guard nowPlayingPath == path else { return }
         let pref = Prefs.langSubtitles.split(separator: ",").map(String.init)
         var selected = false
         for sub in subs {
