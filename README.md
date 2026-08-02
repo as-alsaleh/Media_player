@@ -5,7 +5,12 @@ beautiful native front-end for your Plex or Jellyfin server (and plain SMB
 shares) with hardware-decoded 4K HDR playback. A Windows port is being
 explored (see [TODO.md](TODO.md)).
 
-![Library](docs/library.png)
+![Home](docs/home.jpg)
+
+| | |
+|---|---|
+| ![TV Shows](docs/shows.jpg) | ![Show detail](docs/detail.jpg) |
+| ![Player](docs/player.jpg) | ![Settings](docs/settings.jpg) |
 
 ## Features
 
