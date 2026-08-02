@@ -20,6 +20,13 @@ Rust engine's surface against what the Swift apps actually call.
 - [ ] **Jellyfin feature parity with Plex.** Plex has `/markers`, `/subtitles`,
   `/preview` and `/rate`; Jellyfin only has `/users`, `/login`, `/progress`,
   `/watched`. No skip-intro, trickplay, subtitle listing or ratings on Jellyfin.
+- [ ] **Show critic/audience ratings — no new API needed.** `plex.rs` parses
+  `ratingKey` (the item identifier) but not Plex's `rating`, `audienceRating`
+  and `ratingImage` fields, which carry Rotten Tomatoes critic and audience
+  scores that Plex already licenses and serves. Jellyfin has the equivalent in
+  `CommunityRating` and `CriticRating`. Free, no key, no terms to accept —
+  just parse and display. Only fall back to OMDb (free tier 1,000 req/day) for
+  the local/SMB library where there's no server supplying metadata.
 - [ ] **Offline downloads.** README roadmap. No download routes, no local media
   store, no UI. Needs a download endpoint, a completed-downloads index,
   playback from local path, and manage/delete UI.
@@ -69,9 +76,32 @@ Rust engine's surface against what the Swift apps actually call.
 
 ## Windows port
 
-Ordered by difficulty. **Reconsider #21 before starting any of this** — Plezy
-already covers Windows with Plex + Jellyfin + mpv, and the UI rewrite is ~80%
-of the total effort.
+Ordered by difficulty. **Reconsider the UI rewrite before starting any of
+this** — Plezy already covers Windows with Plex + Jellyfin + mpv, and that item
+is ~80% of the total effort.
+
+### Repo strategy: a new repo, not a fork
+
+Decided: the Windows UI lives in its own repository (`Media_player-windows`),
+created fresh — not a GitHub fork. A fork drags along the `apps/macos` and
+`apps/ios` trees that will never compile there, and defaults its PRs upstream.
+
+The reason it must be separate is **licensing**. Same repo means same LICENSE.
+Pasting GPL code from Jellyfin Media Player or FluentFin into a Windows UI is
+completely fine on Windows — there's no App Store involved — but if it lives
+alongside `mediacore`, it argues for relicensing the core and kills the Apple
+App Store path permanently. Separate repos make that structurally impossible
+instead of a rule someone has to remember.
+
+No submodule or crates.io publish is needed: `mediacore` is already a localhost
+HTTP API, so the Windows repo consumes a **prebuilt `mediacored.exe`** released
+as a build artifact from this repo. Zero source coupling.
+
+    Media_player          → Rust core + Apple apps (MPL-2.0), builds mediacored.exe
+    Media_player-windows  → UI only, ships the prebuilt mediacored.exe
+
+Cost: changes spanning both (new endpoint + its consumer) become two commits in
+two repos. Minor — there's a release boundary either way.
 
 - [ ] **Verify `cargo build --target x86_64-pc-windows-msvc`.** Should be close
   to free: zero `#[cfg(target_os)]` in the core, pure-Rust `smb` crate, bundled
