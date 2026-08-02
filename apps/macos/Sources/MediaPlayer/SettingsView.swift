@@ -31,6 +31,7 @@ struct SettingsView: View {
     @AppStorage("plexServerName") private var plexServerName = ""
 
     // Playback
+    @AppStorage("videoQuality") private var videoQuality = "quality"
     @AppStorage("introSkipMode") private var introSkipMode = "manual"
     @AppStorage("skipForwardSecs") private var skipForwardSecs = 30
     @AppStorage("skipBackSecs") private var skipBackSecs = 10
@@ -319,6 +320,16 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var playback: some View {
+        card("Video") {
+            row("wand.and.stars", "Upscaling",
+                caption: "Enhanced sharpens upscaled video on the fly") {
+                picker($videoQuality, options: [
+                    ("Quality", "quality"), ("Enhanced", "enhanced"),
+                    ("Battery saver", "eco"),
+                ])
+            }
+        }
+
         card("Intros & Ads") {
             row("forward.end.fill", "Skip mode",
                 caption: "Automatic jumps past intros and ads for you") {

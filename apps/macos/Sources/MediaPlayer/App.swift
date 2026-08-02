@@ -105,13 +105,15 @@ struct ContentView: View {
         NSCursor.unhide()
         hideWork?.cancel()
         let work = DispatchWorkItem {
-            if !player.isPaused {
-                withAnimation(.easeOut(duration: 0.4)) { controlsVisible = false }
+            // Stay visible while paused or while the cursor is parked on the
+            // timeline (hover-scrubbing a preview).
+            if !player.isPaused && hoverScrub == nil {
+                withAnimation(.easeOut(duration: 0.3)) { controlsVisible = false }
                 NSCursor.setHiddenUntilMouseMoves(true)
             }
         }
         hideWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1, execute: work)
     }
 
     private func closePlayer() {

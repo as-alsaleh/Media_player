@@ -71,6 +71,10 @@ final class MPVPlayer: ObservableObject {
 
         mpv_initialize(handle)
 
+        // Scaler/shader tier (Quality / Enhanced / Battery saver) is global;
+        // per-load Prefs.apply re-asserts it alongside audio/language prefs.
+        Prefs.applyVideo(to: self)
+
         observe("pause", MPV_FORMAT_FLAG)
         observe("time-pos", MPV_FORMAT_DOUBLE)
         observe("duration", MPV_FORMAT_DOUBLE)

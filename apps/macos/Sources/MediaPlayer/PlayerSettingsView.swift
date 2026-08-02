@@ -16,6 +16,7 @@ struct PlayerSettingsView: View {
     @State private var subBackground = false
     @State private var audioDelay: Double = 0
     @State private var boost = false
+    @State private var enhance = Prefs.videoQuality == "enhanced"
     @State private var chapters: [MPVPlayer.Chapter] = []
 
     private let speeds: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
@@ -86,6 +87,14 @@ struct PlayerSettingsView: View {
                 }
 
                 section("Playback", icon: "play.circle.fill") {
+                    Toggle(isOn: $enhance) {
+                        Text("Enhance picture (sharpen upscale)").font(.system(size: 12.5))
+                    }
+                    .onChange(of: enhance) {
+                        UserDefaults.standard.set(enhance ? "enhanced" : "quality",
+                                                  forKey: "videoQuality")
+                        Prefs.applyVideo(to: player)
+                    }
                     Toggle(isOn: $boost) {
                         Text("Volume Boost (night mode)").font(.system(size: 12.5))
                     }
