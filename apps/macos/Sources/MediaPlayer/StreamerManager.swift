@@ -412,6 +412,30 @@ final class StreamerManager: ObservableObject {
         ])
     }
 
+    /// Jellyfin parity — same shapes as the Plex calls, keyed by item id.
+    func jellyfinMarkers(itemId: String) async -> [PlexMarker] {
+        guard let baseURL else { return [] }
+        var comps = URLComponents(url: baseURL.appendingPathComponent("jellyfin/markers"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "item_id", value: itemId)]
+        guard let (data, _) = try? await URLSession.shared.data(from: comps.url!) else { return [] }
+        return (try? JSONDecoder().decode([PlexMarker].self, from: data)) ?? []
+    }
+
+    func jellyfinSubtitles(itemId: String) async -> [PlexSubtitle] {
+        guard let baseURL else { return [] }
+        var comps = URLComponents(url: baseURL.appendingPathComponent("jellyfin/subtitles"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "item_id", value: itemId)]
+        guard let (data, _) = try? await URLSession.shared.data(from: comps.url!) else { return [] }
+        return (try? JSONDecoder().decode([PlexSubtitle].self, from: data)) ?? []
+    }
+
+    func jellyfinRate(itemId: String, rating: Double) {
+        fireAndForget("jellyfin/rate", [
+            URLQueryItem(name: "item_id", value: itemId),
+            URLQueryItem(name: "rating", value: String(rating)),
+        ])
+    }
+
     func plexSetWatched(ratingKey: String, watched: Bool) {
         fireAndForget("plex/watched", [
             URLQueryItem(name: "rating_key", value: ratingKey),

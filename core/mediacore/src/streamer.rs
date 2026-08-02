@@ -194,6 +194,9 @@ impl Streamer {
             .route("/jellyfin/users", get(jellyfin_users))
             .route("/jellyfin/login", get(jellyfin_login))
             .route("/jellyfin/progress", get(jellyfin_progress))
+            .route("/jellyfin/markers", get(jellyfin_markers))
+            .route("/jellyfin/subtitles", get(jellyfin_subtitles))
+            .route("/jellyfin/rate", get(jellyfin_rate))
             .route("/jellyfin/watched", get(jellyfin_watched))
             .with_state(self.state);
         let listener =
@@ -609,6 +612,40 @@ async fn jellyfin_progress(
     let state = q.get("state").map(String::as_str).unwrap_or("playing");
     Json(serde_json::json!({"ok": jf.report_progress(item, secs, state).await}))
         .into_response()
+}
+
+async fn jellyfin_markers(
+    State(st): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (Some(jf), Some(item)) = (&st.jellyfin, q.get("item_id")) else {
+        return (StatusCode::BAD_REQUEST, "jellyfin + item_id required").into_response();
+    };
+    Json(jf.markers(item).await).into_response()
+}
+
+async fn jellyfin_subtitles(
+    State(st): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (Some(jf), Some(item)) = (&st.jellyfin, q.get("item_id")) else {
+        return (StatusCode::BAD_REQUEST, "jellyfin + item_id required").into_response();
+    };
+    Json(jf.subtitles(item).await).into_response()
+}
+
+async fn jellyfin_rate(
+    State(st): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (Some(jf), Some(item), Some(rating)) = (
+        &st.jellyfin,
+        q.get("item_id"),
+        q.get("rating").and_then(|r| r.parse::<f32>().ok()),
+    ) else {
+        return (StatusCode::BAD_REQUEST, "jellyfin + item_id + rating required").into_response();
+    };
+    Json(serde_json::json!({"ok": jf.rate(item, rating).await})).into_response()
 }
 
 async fn jellyfin_watched(

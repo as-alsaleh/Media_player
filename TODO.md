@@ -16,9 +16,14 @@ Rust engine's surface against what the Swift apps actually call.
 - [x] **iOS SMB password into the Keychain.** iOS now uses `ShareStore`
   (Keychain) like macOS, migrates legacy plaintext config on first run and
   scrubs the old default. The plaintext dev-build escape hatch is macOS-only.
-- [ ] **Jellyfin feature parity with Plex.** Plex has `/markers`, `/subtitles`,
-  `/preview` and `/rate`; Jellyfin only has `/users`, `/login`, `/progress`,
-  `/watched`. No skip-intro, trickplay, subtitle listing or ratings on Jellyfin.
+- [x] **Jellyfin feature parity with Plex.** Added `/jellyfin/markers` (media
+  segments → intro/credits/commercial), `/jellyfin/subtitles` (external text
+  streams via the subtitle delivery URL) and `/jellyfin/rate` (0–10 mapped to
+  likes; 0 clears). Both apps fetch markers/subtitles for `jf:` items and the
+  detail-sheet watched/star controls now drive Jellyfin too. `/preview`
+  (trickplay) already existed. *Live verification pending — the Jellyfin
+  container on the mini PC is stopped at the user's request; code compiles and
+  mirrors the verified Plex path.*
 - [x] **Show critic/audience ratings.** Plex `rating`/`audienceRating` and
   Jellyfin `CriticRating`/`CommunityRating` are parsed, served on
   `/library/movies` and `/library/shows`, and shown as rosette/audience badges

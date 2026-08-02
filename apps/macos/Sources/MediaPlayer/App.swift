@@ -464,7 +464,9 @@ struct ContentView: View {
             Task { await loadExternalSubtitles(ratingKey: key) }
         } else if path.hasPrefix("jf:") {
             let item = String(path.dropFirst("jf:".count))
+            Task { markers = await streamer.jellyfinMarkers(itemId: item) }
             Task { previewInfo = await streamer.seekPreview(jellyfinItemId: item) }
+            Task { await attachSubtitles(await streamer.jellyfinSubtitles(itemId: item)) }
         }
 
         player.onFileEnded = {
@@ -480,7 +482,10 @@ struct ContentView: View {
     /// downloads) to the current file; auto-select one matching the
     /// preferred subtitle language.
     private func loadExternalSubtitles(ratingKey: String) async {
-        let subs = await streamer.plexSubtitles(ratingKey: ratingKey)
+        await attachSubtitles(await streamer.plexSubtitles(ratingKey: ratingKey))
+    }
+
+    private func attachSubtitles(_ subs: [StreamerManager.PlexSubtitle]) async {
         guard !subs.isEmpty else { return }
         // sub-add needs an open file — wait for the demuxer to come up.
         for _ in 0..<40 where player.duration <= 0 {

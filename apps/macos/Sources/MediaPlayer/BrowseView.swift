@@ -1377,6 +1377,11 @@ struct MovieDetailSheet: View {
             ? String(movie.progress_key.dropFirst("plex:".count)) : nil
     }
 
+    private var jellyfinItemId: String? {
+        movie.progress_key.hasPrefix("jf:")
+            ? String(movie.progress_key.dropFirst("jf:".count)) : nil
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
@@ -1452,7 +1457,19 @@ struct MovieDetailSheet: View {
                             .buttonStyle(.plain)
                             .help(watched ? "Mark unwatched" : "Mark watched")
 
-                            starRating(key: key)
+                            starRating { streamer.plexRate(ratingKey: key, rating: $0) }
+                        } else if let item = jellyfinItemId {
+                            Button {
+                                watched.toggle()
+                                streamer.jellyfinSetWatched(itemId: item, watched: watched)
+                            } label: {
+                                Image(systemName: watched ? "checkmark.circle.fill" : "checkmark.circle")
+                                    .font(.title2)
+                            }
+                            .buttonStyle(.plain)
+                            .help(watched ? "Mark unwatched" : "Mark watched")
+
+                            starRating { streamer.jellyfinRate(itemId: item, rating: $0) }
                         }
                     }
 
@@ -1490,12 +1507,12 @@ struct MovieDetailSheet: View {
         .preferredColorScheme(.dark)
     }
 
-    private func starRating(key: String) -> some View {
+    private func starRating(rate: @escaping (Double) -> Void) -> some View {
         HStack(spacing: 3) {
             ForEach(1...5, id: \.self) { i in
                 Button {
                     stars = i
-                    streamer.plexRate(ratingKey: key, rating: Double(i * 2))
+                    rate(Double(i * 2))
                 } label: {
                     Image(systemName: i <= stars ? "star.fill" : "star")
                         .foregroundStyle(i <= stars ? .yellow : .white.opacity(0.5))
@@ -1504,7 +1521,7 @@ struct MovieDetailSheet: View {
             }
         }
         .font(.system(size: 16))
-        .help("Rate on Plex")
+        .help("Rate on your server")
     }
 }
 

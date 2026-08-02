@@ -447,6 +447,129 @@ impl JellyfinSource {
         req.send().await.map(|r| r.status().is_success()).unwrap_or(false)
     }
 
+    /// Skip markers from Jellyfin media segments (10.10+). Mapped onto the
+    /// same kinds the Plex markers use so the apps treat them identically.
+    pub async fn markers(&self, item_id: &str) -> Vec<crate::plex::PlexMarker> {
+        #[derive(Deserialize)]
+        struct SegmentsResp {
+            #[serde(rename = "Items", default)]
+            items: Vec<Segment>,
+        }
+        #[derive(Deserialize)]
+        struct Segment {
+            #[serde(rename = "Type")]
+            kind: Option<String>,
+            #[serde(rename = "StartTicks")]
+            start_ticks: Option<u64>,
+            #[serde(rename = "EndTicks")]
+            end_ticks: Option<u64>,
+        }
+        let Some(resp) = self
+            .get_json::<SegmentsResp>(&format!("/MediaSegments/{item_id}"))
+            .await
+        else {
+            return Vec::new();
+        };
+        resp.items
+            .into_iter()
+            .filter_map(|s| {
+                let kind = match s.kind.as_deref() {
+                    Some("Intro") => "intro",
+                    Some("Outro") => "credits",
+                    Some("Commercial") => "commercial",
+                    _ => return None,
+                };
+                Some(crate::plex::PlexMarker {
+                    kind: kind.to_string(),
+                    start_secs: s.start_ticks? as f64 / 1e7,
+                    end_secs: s.end_ticks? as f64 / 1e7,
+                })
+            })
+            .collect()
+    }
+
+    /// External text subtitles for an item, shaped like Plex's.
+    pub async fn subtitles(&self, item_id: &str) -> Vec<crate::plex::PlexSubtitle> {
+        #[derive(Deserialize)]
+        struct ItemResp {
+            #[serde(rename = "MediaSources", default)]
+            sources: Vec<Source>,
+        }
+        #[derive(Deserialize)]
+        struct Source {
+            #[serde(rename = "Id")]
+            id: String,
+            #[serde(rename = "MediaStreams", default)]
+            streams: Vec<Stream>,
+        }
+        #[derive(Deserialize)]
+        struct Stream {
+            #[serde(rename = "Type")]
+            kind: Option<String>,
+            #[serde(rename = "Codec")]
+            codec: Option<String>,
+            #[serde(rename = "Language")]
+            lang: Option<String>,
+            #[serde(rename = "DisplayTitle")]
+            title: Option<String>,
+            #[serde(rename = "Index")]
+            index: Option<u32>,
+            #[serde(rename = "IsExternal")]
+            external: Option<bool>,
+        }
+        let Some(uid) = self.user_id.as_deref() else { return Vec::new() };
+        let Some(item) = self
+            .get_json::<ItemResp>(&format!("/Users/{uid}/Items/{item_id}?Fields=MediaSources"))
+            .await
+        else {
+            return Vec::new();
+        };
+        const TEXT: [&str; 5] = ["srt", "subrip", "ass", "ssa", "vtt"];
+        let mut out = Vec::new();
+        for source in &item.sources {
+            for s in &source.streams {
+                if s.kind.as_deref() != Some("Subtitle") || !s.external.unwrap_or(false) {
+                    continue;
+                }
+                let codec = s.codec.clone().unwrap_or_else(|| "srt".into());
+                if !TEXT.contains(&codec.as_str()) {
+                    continue;
+                }
+                let ext = if codec == "subrip" { "srt" } else { codec.as_str() };
+                let Some(index) = s.index else { continue };
+                out.push(crate::plex::PlexSubtitle {
+                    url: format!(
+                        "{}/Videos/{item_id}/{}/Subtitles/{index}/0/Stream.{ext}?api_key={}",
+                        self.base,
+                        source.id,
+                        self.token()
+                    ),
+                    lang: s.lang.clone(),
+                    title: s.title.clone(),
+                    codec: Some(codec),
+                });
+            }
+        }
+        out
+    }
+
+    /// Jellyfin has likes, not a 0–10 scale: ≥6 → liked, <6 → disliked,
+    /// 0 clears the rating.
+    pub async fn rate(&self, item_id: &str, rating: f32) -> bool {
+        let Some(uid) = self.user_id.as_deref() else { return false };
+        let base_url = format!(
+            "{}/Users/{uid}/Items/{item_id}/Rating?api_key={}",
+            self.base, self.token()
+        );
+        let req = if rating <= 0.0 {
+            self.client.delete(&base_url)
+        } else {
+            self.client
+                .post(format!("{base_url}&likes={}", rating >= 6.0))
+        };
+        req.send().await.map(|r| r.status().is_success()).unwrap_or(false)
+    }
+
     // ---- Trickplay ----
 
     fn trickplay_from_item(&self, item: JfItem) -> Option<TrickplayInfo> {
