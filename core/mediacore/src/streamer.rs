@@ -844,7 +844,17 @@ fn parse_range(header: &str, size: u64) -> Option<(u64, u64)> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_range;
+    use super::{norm, parse_range};
+
+    #[test]
+    fn norm_dedup_identity() {
+        // The cross-source dedup key: case, punctuation and spacing collapse,
+        // but distinct titles must stay distinct (Reacher vs Preacher).
+        assert_eq!(norm("Bob's Burgers"), "bobsburgers");
+        assert_eq!(norm("BOB'S  BURGERS!"), "bobsburgers");
+        assert_eq!(norm("Mission: Impossible — Fallout"), "missionimpossiblefallout");
+        assert_ne!(norm("Reacher"), norm("Preacher"));
+    }
 
     #[test]
     fn range_forms() {

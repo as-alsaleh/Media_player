@@ -719,3 +719,64 @@ impl PlexSource {
         out
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A trimmed /library/sections/N/all payload with the fields we map.
+    const SAMPLE: &str = r#"{
+        "MediaContainer": {
+            "Metadata": [{
+                "ratingKey": "42",
+                "title": "Manchester by the Sea",
+                "year": 2016,
+                "summary": "Lee Chandler is a brooding, irritable loner.",
+                "thumb": "/library/metadata/42/thumb/1",
+                "art": "/library/metadata/42/art/1",
+                "rating": 9.6,
+                "audienceRating": 7.8,
+                "viewOffset": 90000,
+                "viewCount": 1,
+                "addedAt": 1754000000,
+                "duration": 8220000,
+                "Guid": [
+                    {"id": "imdb://tt4034228"},
+                    {"id": "tmdb://334543"}
+                ],
+                "Marker": [
+                    {"type": "credits", "startTimeOffset": 8000000, "endTimeOffset": 8220000}
+                ],
+                "Media": [{"Part": [{"key": "/library/parts/9/file.mkv", "id": 9}]}]
+            }]
+        }
+    }"#;
+
+    #[test]
+    fn parses_item_fields() {
+        let env: Envelope<ItemList> = serde_json::from_str(SAMPLE).unwrap();
+        let item = &env.container.items[0];
+        assert_eq!(item.rating_key, "42");
+        assert_eq!(item.year, Some(2016));
+        assert_eq!(item.rating, Some(9.6));
+        assert_eq!(item.audience_rating, Some(7.8));
+        assert_eq!(item.tmdb_id(), Some(334543));
+        assert!(item.watched());
+        assert_eq!(item.offset_secs(), Some(90.0));
+        assert_eq!(item.duration_secs(), Some(8220.0));
+        assert_eq!(item.added_at, Some(1754000000));
+        assert_eq!(item.markers.len(), 1);
+        assert_eq!(item.markers[0].kind, "credits");
+    }
+
+    #[test]
+    fn missing_optionals_do_not_fail() {
+        // Plex omits fields freely; the minimum payload must still parse.
+        let minimal = r#"{"MediaContainer": {"Metadata": [{"ratingKey": "1", "title": "X"}]}}"#;
+        let env: Envelope<ItemList> = serde_json::from_str(minimal).unwrap();
+        let item = &env.container.items[0];
+        assert_eq!(item.rating, None);
+        assert_eq!(item.tmdb_id(), None);
+        assert!(!item.watched());
+    }
+}

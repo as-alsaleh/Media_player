@@ -616,3 +616,69 @@ impl JellyfinSource {
         self.trickplay_from_item(item)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn iso_dates_to_epoch() {
+        assert_eq!(
+            iso_to_epoch(&Some("2026-08-01T12:34:56.789Z".to_string())),
+            Some(1785587696)
+        );
+        assert_eq!(iso_to_epoch(&Some("1970-01-01T00:00:00Z".to_string())), Some(0));
+        assert_eq!(iso_to_epoch(&None), None);
+        assert_eq!(iso_to_epoch(&Some("not a date".to_string())), None);
+    }
+
+    #[test]
+    fn parses_item_with_ratings_and_userdata() {
+        let raw = r#"{
+            "Items": [{
+                "Id": "abc123",
+                "Name": "Conclave",
+                "ProductionYear": 2024,
+                "RunTimeTicks": 72000000000,
+                "CommunityRating": 7.4,
+                "CriticRating": 93.0,
+                "DateCreated": "2026-08-01T12:34:56.789Z",
+                "ProviderIds": {"Tmdb": "974576"},
+                "UserData": {"PlaybackPositionTicks": 600000000, "Played": false}
+            }]
+        }"#;
+        let resp: ItemsResp = serde_json::from_str(raw).unwrap();
+        let item = &resp.items[0];
+        assert_eq!(item.community_rating, Some(7.4));
+        assert_eq!(item.critic_rating, Some(93.0));
+        assert_eq!(item.runtime_ticks, Some(72000000000));
+        assert_eq!(item.provider_ids.get("Tmdb").unwrap(), "974576");
+        let ud = item.user_data.as_ref().unwrap();
+        // 600000000 ticks = 60 seconds.
+        assert_eq!(ud.position_ticks, Some(600000000));
+    }
+
+    #[test]
+    fn trickplay_picks_widest_grid() {
+        let raw = r#"{
+            "Items": [{
+                "Id": "vid1",
+                "Trickplay": {
+                    "src1": {
+                        "192": {"Width": 192, "Height": 108, "TileWidth": 10,
+                                "TileHeight": 10, "ThumbnailCount": 500, "Interval": 10000},
+                        "320": {"Width": 320, "Height": 180, "TileWidth": 10,
+                                "TileHeight": 10, "ThumbnailCount": 500, "Interval": 10000}
+                    }
+                }
+            }]
+        }"#;
+        let resp: ItemsResp = serde_json::from_str(raw).unwrap();
+        let jf = JellyfinSource::new("http://example".into(), "key".into());
+        let info = jf.trickplay_from_item(resp.items.into_iter().next().unwrap()).unwrap();
+        assert!(info.tile_url_template.contains("/Trickplay/320/"));
+        assert_eq!(info.tile_cols, 10);
+        assert_eq!(info.interval_ms, 10000);
+        assert_eq!(info.thumbnail_count, 500);
+    }
+}

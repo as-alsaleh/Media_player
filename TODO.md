@@ -50,9 +50,11 @@ Rust engine's surface against what the Swift apps actually call.
 - [ ] **Verify Plex failure degradation.** Parsing is already tolerant (`Option`
   fields, `serde(default)`, no `deny_unknown_fields`). Untested is *behaviour*:
   stub markers/preview/subtitles/rate to fail and confirm playback still works.
-- [ ] **Expand Rust test coverage.** Three tests exist in the whole core (two in
-  `parse.rs`, one in `streamer.rs`). Nothing covers `plex.rs` (708 lines),
-  `jellyfin.rs` (481), range handling in `streamer.rs`, `smb.rs` or `index.rs`.
+- [x] **Expand Rust test coverage (first pass).** 9 tests now: Plex metadata
+  parsing (ratings, guids, markers, minimal payloads), Jellyfin item parsing
+  (ratings, ticks, provider ids), `iso_to_epoch`, trickplay widest-grid
+  selection, and the `norm()` dedup key, plus the existing parse/range tests.
+  `smb.rs` and `index.rs` still lack coverage.
 - [ ] **MPL Exhibit A headers.** Optional; ~22 files. MPL explicitly allows
   relying on the LICENSE file instead.
 
