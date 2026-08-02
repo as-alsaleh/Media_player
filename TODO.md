@@ -39,9 +39,9 @@ Rust engine's surface against what the Swift apps actually call.
   and `cargo test` passes with `rustls-tls-native-roots`.
 - [x] **Surface `initError` in the player UI.** The player overlay now shows a
   "Playback engine failed to start" card with the mpv error and a Close button.
-- [ ] **Fetch the TMDB image base from `/configuration`.** `tmdb.rs:6`
-  hardcodes `https://image.tmdb.org/t/p`. TMDB documents that clients should
-  read it, precisely so they can move the CDN.
+- [x] **Fetch the TMDB image base from `/configuration`.** Read once per
+  enrich() run from `images.secure_base_url`, falling back to the documented
+  host when unreachable.
 - [ ] **Verify Plex failure degradation.** Parsing is already tolerant (`Option`
   fields, `serde(default)`, no `deny_unknown_fields`). Untested is *behaviour*:
   stub markers/preview/subtitles/rate to fail and confirm playback still works.

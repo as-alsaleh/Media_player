@@ -3,7 +3,34 @@
 use crate::index::Index;
 use std::sync::Arc;
 
-const IMG: &str = "https://image.tmdb.org/t/p";
+/// Fallback if /configuration is unreachable — the documented CDN today.
+const IMG_FALLBACK: &str = "https://image.tmdb.org/t/p";
+
+#[derive(serde::Deserialize)]
+struct Configuration {
+    images: ImagesConfig,
+}
+
+#[derive(serde::Deserialize)]
+struct ImagesConfig {
+    secure_base_url: String,
+}
+
+/// TMDB asks clients to read the image CDN base from /configuration so they
+/// can move it. Cached per enrich() run; falls back to the known host.
+async fn image_base(client: &reqwest::Client, api_key: &str) -> String {
+    let resp = client
+        .get("https://api.themoviedb.org/3/configuration")
+        .query(&[("api_key", api_key)])
+        .send()
+        .await;
+    if let Ok(resp) = resp {
+        if let Ok(cfg) = resp.json::<Configuration>().await {
+            return cfg.images.secure_base_url.trim_end_matches('/').to_string();
+        }
+    }
+    IMG_FALLBACK.to_string()
+}
 
 #[derive(serde::Deserialize)]
 struct SearchResponse {
@@ -17,12 +44,12 @@ struct SearchResult {
     overview: Option<String>,
 }
 
-fn poster(hit: &SearchResult) -> Option<String> {
-    hit.poster_path.as_ref().map(|p| format!("{IMG}/w342{p}"))
+fn poster(img: &str, hit: &SearchResult) -> Option<String> {
+    hit.poster_path.as_ref().map(|p| format!("{img}/w342{p}"))
 }
 
-fn backdrop(hit: &SearchResult) -> Option<String> {
-    hit.backdrop_path.as_ref().map(|p| format!("{IMG}/w1280{p}"))
+fn backdrop(img: &str, hit: &SearchResult) -> Option<String> {
+    hit.backdrop_path.as_ref().map(|p| format!("{img}/w1280{p}"))
 }
 
 /// Fill poster/backdrop/overview for movies and shows that lack them.
@@ -30,6 +57,7 @@ fn backdrop(hit: &SearchResult) -> Option<String> {
 /// Returns the number of items enriched.
 pub async fn enrich(index: &Arc<Index>, api_key: &str, language: &str) -> usize {
     let client = reqwest::Client::new();
+    let img = image_base(&client, api_key).await;
     let mut enriched = 0;
     let language = if language.is_empty() { "en-US" } else { language };
 
@@ -51,9 +79,9 @@ pub async fn enrich(index: &Arc<Index>, api_key: &str, language: &str) -> usize 
             let Some(hit) = body.results.first() else { continue };
             index.set_movie_meta(
                 movie.id,
-                poster(hit).as_deref(),
+                poster(&img, hit).as_deref(),
                 hit.overview.as_deref(),
-                backdrop(hit).as_deref(),
+                backdrop(&img, hit).as_deref(),
             );
             enriched += 1;
         }
@@ -75,8 +103,8 @@ pub async fn enrich(index: &Arc<Index>, api_key: &str, language: &str) -> usize 
             let Some(hit) = body.results.first() else { continue };
             index.set_show_meta(
                 &show.name,
-                poster(hit).as_deref(),
-                backdrop(hit).as_deref(),
+                poster(&img, hit).as_deref(),
+                backdrop(&img, hit).as_deref(),
                 hit.overview.as_deref(),
             );
             enriched += 1;
