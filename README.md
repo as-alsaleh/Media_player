@@ -69,6 +69,14 @@ Requires Xcode 15+, Rust (with the Apple targets), and XcodeGen.
 
 ## License
 
-License for this repository's code: to be finalized by the author — the app
-now links MPVKit's **LGPL** build of mpv/FFmpeg (App Store-compatible), so
-the code is no longer required to be GPL. See MPVKit for its licenses.
+This repository's code is licensed under the **Mozilla Public License 2.0**
+— see [LICENSE](LICENSE). File-level copyleft: changes to these files must be
+published, but MPL imposes no App Store-incompatible restrictions, and it
+doesn't reach into code you add alongside it.
+
+Playback links MPVKit's **LGPL** build of mpv/FFmpeg (the `MPVKit` product,
+not `MPVKit-GPL`), which keeps App Store distribution viable. See MPVKit for
+its own licenses.
+
+Contributions are accepted under the same license — see
+[CONTRIBUTING.md](CONTRIBUTING.md).
