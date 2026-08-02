@@ -4,6 +4,23 @@ Derived from an audit of what's built vs. what's wired up, plus the README
 roadmap. The source has no TODO/FIXME markers — these came from comparing the
 Rust engine's surface against what the Swift apps actually call.
 
+## User-reported issues (2026-08-02) — fix first
+
+- [ ] **Context menu on library items.** Right-click (macOS) / long-press
+  (iOS/tvOS) on a poster or Continue Watching card should offer the regular
+  options: Remove from Continue Watching, Mark watched / Mark unwatched,
+  Download, Play from beginning. Engine already has `/plex/watched` and
+  `/jellyfin/watched`; "remove from Continue Watching" on Plex maps to
+  marking played or clearing the resume point
+  (`/:/unscrobble` + timeline stopped at 0 — verify which combination the
+  server honors for Continue Watching removal).
+- [ ] **Refresh doesn't pick up newly added Plex items.** The ⟳ rescan did
+  not surface shows/movies added to Plex today. Likely cause: the engine
+  fetches Plex sections live per /library call, but the app caches rows
+  until `refreshTick` changes, or the daemon caches section listings —
+  reproduce, then make ⟳ (and a periodic/on-focus refresh) always re-pull
+  from the server.
+
 ## Apple — feature gaps
 
 - [x] **Wire up Trakt, or delete it.** Deleted — Trakt now requires paid VIP to
