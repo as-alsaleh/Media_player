@@ -5,6 +5,7 @@
 //! media index with TMDB metadata.
 
 pub mod ffi;
+pub mod downloads;
 pub mod index;
 pub mod jellyfin;
 pub mod parse;

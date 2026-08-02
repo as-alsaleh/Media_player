@@ -52,6 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut streamer = Streamer::new(fs);
     if let Some(db) = &args.db {
         streamer = streamer.with_index(mediacore::index::Index::open(db)?);
+        streamer = streamer.with_downloads_dir(db.parent().map(|p| p.join("Downloads")));
     }
     streamer = streamer.with_tmdb_key(std::env::var("MEDIACORED_TMDB_KEY").ok());
     if let (Some(url), Ok(token)) = (&args.plex_url, std::env::var("MEDIACORED_PLEX_TOKEN")) {

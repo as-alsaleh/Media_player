@@ -226,6 +226,7 @@ struct BrowseView: View {
     @State private var scanning = false
     @State private var showFiles = false
     @State private var showSettings = false
+    @State private var showDownloads = false
     @State private var plexUsers: [StreamerManager.PlexUser] = []
     @State private var pinPromptUser: StreamerManager.PlexUser?
     @State private var pinInput = ""
@@ -307,6 +308,9 @@ struct BrowseView: View {
         }
         .sheet(isPresented: $showSettings) {
             SettingsView(onSaved: onReconnect, streamer: streamer)
+        }
+        .sheet(isPresented: $showDownloads) {
+            DownloadsSheet(streamer: streamer, onPlay: onPlay)
         }
         .alert("PIN for \(pinPromptUser?.title ?? "")", isPresented: .init(
             get: { pinPromptUser != nil },
@@ -427,6 +431,11 @@ struct BrowseView: View {
                 .buttonStyle(.plain)
                 .help("Browse files")
             }
+            Button { showDownloads = true } label: {
+                Image(systemName: "arrow.down.circle")
+            }
+            .buttonStyle(.plain)
+            .help("Downloads")
             Button { showSettings = true } label: {
                 Image(systemName: "gearshape")
             }
@@ -1331,6 +1340,122 @@ struct ContinueCard: View {
 // MARK: - Detail sheets
 
 /// Movie page: backdrop, play/resume, rating stars, watched toggle.
+/// Offline downloads: live progress, play-from-disk, delete.
+struct DownloadsSheet: View {
+    @ObservedObject var streamer: StreamerManager
+    let onPlay: (URL, String, String, Double?) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var entries: [StreamerManager.DownloadEntry] = []
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Downloads").font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }
+            }
+            .padding(14)
+
+            if entries.isEmpty {
+                Spacer()
+                VStack(spacing: 8) {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.system(size: 34))
+                        .foregroundStyle(.white.opacity(0.3))
+                    Text("Nothing downloaded yet")
+                        .foregroundStyle(.white.opacity(0.5))
+                    Text("Use the download button on a movie to watch it offline.")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.white.opacity(0.35))
+                }
+                Spacer()
+            } else {
+                ScrollView {
+                    VStack(spacing: 6) {
+                        ForEach(entries) { entry in row(entry) }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 14)
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(width: 460, height: 420)
+        #endif
+        .background(canvasColor)
+        .preferredColorScheme(.dark)
+        .task {
+            while !Task.isCancelled {
+                entries = await streamer.downloadsList()
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func row(_ entry: StreamerManager.DownloadEntry) -> some View {
+        HStack(spacing: 10) {
+            FadeInImage(url: entry.poster_url.flatMap(URL.init))
+                .frame(width: 34, height: 50)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(entry.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                switch entry.state {
+                case "done":
+                    Text(sizeLabel(entry.bytes_done))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.45))
+                case "error":
+                    Text("Failed — tap download again to retry")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
+                default:
+                    ProgressView(value: entry.fraction ?? 0)
+                        .tint(.white)
+                    Text(progressLabel(entry))
+                        .font(.system(size: 10.5).monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.45))
+                }
+            }
+            Spacer()
+            if entry.state == "done" {
+                Button {
+                    dismiss()
+                    onPlay(URL(fileURLWithPath: entry.file), entry.title,
+                           entry.key, WatchProgress.position(for: entry.key))
+                } label: {
+                    Image(systemName: "play.circle.fill").font(.title2)
+                }
+                .buttonStyle(.plain)
+            }
+            Button {
+                streamer.deleteDownload(key: entry.key)
+                entries.removeAll { $0.key == entry.key }
+            } label: {
+                Image(systemName: "trash")
+                    .foregroundStyle(.white.opacity(0.6))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(10)
+        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func sizeLabel(_ bytes: UInt64) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+    }
+
+    private func progressLabel(_ e: StreamerManager.DownloadEntry) -> String {
+        if let total = e.bytes_total, total > 0 {
+            return "\(sizeLabel(e.bytes_done)) of \(sizeLabel(total))"
+        }
+        return sizeLabel(e.bytes_done)
+    }
+}
+
 /// Critic (Rotten Tomatoes on Plex) and audience scores as compact badges.
 /// Scores arrive 0–10; shown as percentages, hidden when absent.
 struct RatingBadges: View {
@@ -1381,6 +1506,8 @@ struct MovieDetailSheet: View {
         movie.progress_key.hasPrefix("jf:")
             ? String(movie.progress_key.dropFirst("jf:".count)) : nil
     }
+
+    @State private var downloadQueued = false
 
     var body: some View {
         ScrollView {
@@ -1471,6 +1598,21 @@ struct MovieDetailSheet: View {
 
                             starRating { streamer.jellyfinRate(itemId: item, rating: $0) }
                         }
+
+                        Button {
+                            let url = streamer.resolveStream(movie.stream_url)?.absoluteString
+                                ?? movie.stream_url
+                            streamer.startDownload(key: movie.progress_key, url: url,
+                                                   title: movie.title,
+                                                   poster: movie.poster_url)
+                            downloadQueued = true
+                        } label: {
+                            Image(systemName: downloadQueued
+                                  ? "checkmark.circle" : "arrow.down.circle")
+                                .font(.title2)
+                        }
+                        .buttonStyle(.plain)
+                        .help(downloadQueued ? "Added to Downloads" : "Download for offline")
                     }
 
                     if let o = movie.view_offset_secs, let d = movie.duration_secs, d > 0 {

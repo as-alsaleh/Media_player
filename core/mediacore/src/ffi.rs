@@ -58,6 +58,11 @@ pub fn start_streamer(
             let index = Index::open(std::path::Path::new(db))
                 .map_err(|e| CoreError::Serve { msg: e.to_string() })?;
             streamer = streamer.with_index(index);
+            // Offline downloads live next to the library database.
+            let dir = std::path::Path::new(db)
+                .parent()
+                .map(|p| p.join("Downloads"));
+            streamer = streamer.with_downloads_dir(dir);
         }
         streamer = streamer.with_tmdb_key(tmdb_api_key.clone());
         if let (Some(url), Some(token)) = (&plex_url, &plex_token) {

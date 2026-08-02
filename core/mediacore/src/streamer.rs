@@ -34,6 +34,8 @@ pub struct AppState {
     pub restricted: bool,
     /// Trickplay (seek-preview thumbnail) provider.
     pub jellyfin: Option<Arc<crate::jellyfin::JellyfinSource>>,
+    /// Offline downloads (None when no writable data dir was provided).
+    pub downloads: Option<Arc<crate::downloads::DownloadStore>>,
 }
 
 /// Unified library item shapes served to the UI, regardless of source.
@@ -137,6 +139,7 @@ impl Streamer {
                 plex_admin: None,
                 restricted: false,
                 jellyfin: None,
+                downloads: None,
             },
         }
     }
@@ -163,6 +166,12 @@ impl Streamer {
 
     pub fn with_index(mut self, index: Index) -> Self {
         self.state.index = Some(Arc::new(index));
+        self
+    }
+
+    pub fn with_downloads_dir(mut self, dir: Option<std::path::PathBuf>) -> Self {
+        self.state.downloads =
+            dir.map(|d| Arc::new(crate::downloads::DownloadStore::new(d)));
         self
     }
 
@@ -197,6 +206,9 @@ impl Streamer {
             .route("/jellyfin/markers", get(jellyfin_markers))
             .route("/jellyfin/subtitles", get(jellyfin_subtitles))
             .route("/jellyfin/rate", get(jellyfin_rate))
+            .route("/downloads/start", get(downloads_start))
+            .route("/downloads/list", get(downloads_list))
+            .route("/downloads/delete", get(downloads_delete))
             .route("/jellyfin/watched", get(jellyfin_watched))
             .with_state(self.state);
         let listener =
@@ -612,6 +624,37 @@ async fn jellyfin_progress(
     let state = q.get("state").map(String::as_str).unwrap_or("playing");
     Json(serde_json::json!({"ok": jf.report_progress(item, secs, state).await}))
         .into_response()
+}
+
+async fn downloads_start(
+    State(st): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (Some(dl), Some(key), Some(url), Some(title)) =
+        (&st.downloads, q.get("key"), q.get("url"), q.get("title"))
+    else {
+        return (StatusCode::BAD_REQUEST, "downloads dir + key + url + title required")
+            .into_response();
+    };
+    Json(dl.start(key.clone(), url.clone(), title.clone(), q.get("poster").cloned()))
+        .into_response()
+}
+
+async fn downloads_list(State(st): State<AppState>) -> Response {
+    match &st.downloads {
+        Some(dl) => Json(dl.list()).into_response(),
+        None => Json(Vec::<crate::downloads::DownloadEntry>::new()).into_response(),
+    }
+}
+
+async fn downloads_delete(
+    State(st): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (Some(dl), Some(key)) = (&st.downloads, q.get("key")) else {
+        return (StatusCode::BAD_REQUEST, "downloads dir + key required").into_response();
+    };
+    Json(serde_json::json!({"ok": dl.delete(key)})).into_response()
 }
 
 async fn jellyfin_markers(

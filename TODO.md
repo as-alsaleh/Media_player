@@ -29,9 +29,14 @@ Rust engine's surface against what the Swift apps actually call.
   `/library/movies` and `/library/shows`, and shown as rosette/audience badges
   in the movie and show detail sheets (verified live: 78/82 movies had RT
   scores). OMDb fallback for the SMB-only library remains open.
-- [ ] **Offline downloads.** README roadmap. No download routes, no local media
-  store, no UI. Needs a download endpoint, a completed-downloads index,
-  playback from local path, and manage/delete UI.
+- [x] **Offline downloads.** `downloads.rs` streams the source URL into
+  `…/MediaPlayer/Downloads` with a JSON manifest (`/downloads/start`, `/list`,
+  `/delete`); interrupted transfers surface as errors on restart. Movie detail
+  sheets have a download button, the nav bar a Downloads sheet with live
+  progress, play-from-disk and delete. Progress keys carry over, so resume
+  points work offline. Verified end-to-end: 379 MB episode downloaded and
+  played back from disk with its resume point. Follow-ups: per-episode
+  download buttons, poster caching for fully-offline artwork.
 - [ ] **Emby source.** README roadmap. `jellyfin.rs` already sends
   `X-Emby-Authorization`, so much of the client may be reusable.
 - [ ] **tvOS remote polish.** README roadmap. The shared UI was built

@@ -1,0 +1,187 @@
+//! Offline downloads.
+//!
+//! Streams a source URL (Plex/Jellyfin direct-play or the local SMB
+//! streamer) into a Downloads directory next to the library database. State
+//! lives in a JSON manifest so the list survives restarts; the apps play
+//! finished files straight off the local path, keyed by the same
+//! progress_key the online item uses so resume points carry over.
+
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadEntry {
+    /// The item's progress key ("plex:42", "jf:abc…", or an SMB path).
+    pub key: String,
+    pub title: String,
+    pub poster_url: Option<String>,
+    /// Absolute path of the (finished or in-flight) local file.
+    pub file: String,
+    pub bytes_done: u64,
+    pub bytes_total: Option<u64>,
+    /// "downloading" | "done" | "error"
+    pub state: String,
+}
+
+pub struct DownloadStore {
+    dir: PathBuf,
+    entries: Mutex<HashMap<String, DownloadEntry>>,
+}
+
+impl DownloadStore {
+    pub fn new(dir: PathBuf) -> Self {
+        std::fs::create_dir_all(&dir).ok();
+        let mut entries: HashMap<String, DownloadEntry> =
+            std::fs::read_to_string(dir.join("downloads.json"))
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or_default();
+        // Anything mid-flight when the process last exited never finished.
+        for e in entries.values_mut() {
+            if e.state == "downloading" {
+                e.state = "error".into();
+            }
+        }
+        Self { dir, entries: Mutex::new(entries) }
+    }
+
+    fn persist_locked(&self, entries: &HashMap<String, DownloadEntry>) {
+        if let Ok(json) = serde_json::to_string_pretty(entries) {
+            std::fs::write(self.dir.join("downloads.json"), json).ok();
+        }
+    }
+
+    pub fn list(&self) -> Vec<DownloadEntry> {
+        let mut v: Vec<_> = self.entries.lock().unwrap().values().cloned().collect();
+        v.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
+        v
+    }
+
+    pub fn delete(&self, key: &str) -> bool {
+        let mut entries = self.entries.lock().unwrap();
+        let Some(e) = entries.remove(key) else { return false };
+        std::fs::remove_file(&e.file).ok();
+        std::fs::remove_file(format!("{}.part", e.file)).ok();
+        self.persist_locked(&entries);
+        true
+    }
+
+    fn update(&self, key: &str, f: impl FnOnce(&mut DownloadEntry), persist: bool) {
+        let mut entries = self.entries.lock().unwrap();
+        if let Some(e) = entries.get_mut(key) {
+            f(e);
+            if persist {
+                self.persist_locked(&entries);
+            }
+        }
+    }
+
+    /// File extension from the URL path, defaulting to mkv (mpv sniffs the
+    /// container anyway; the extension is cosmetic).
+    fn extension(url: &str) -> &str {
+        let path = url.split('?').next().unwrap_or("");
+        match path.rsplit('.').next() {
+            Some(ext @ ("mkv" | "mp4" | "m4v" | "avi" | "mov" | "ts" | "webm")) => ext,
+            _ => "mkv",
+        }
+    }
+
+    /// Register the entry and spawn the transfer; returns the initial state.
+    /// A key that is already downloading or done is returned unchanged.
+    pub fn start(
+        self: &Arc<Self>,
+        key: String,
+        url: String,
+        title: String,
+        poster_url: Option<String>,
+    ) -> DownloadEntry {
+        {
+            let entries = self.entries.lock().unwrap();
+            if let Some(existing) = entries.get(&key) {
+                if existing.state != "error" {
+                    return existing.clone();
+                }
+            }
+        }
+        let safe: String = key
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
+        let file = self
+            .dir
+            .join(format!("{safe}.{}", Self::extension(&url)))
+            .to_string_lossy()
+            .to_string();
+        let entry = DownloadEntry {
+            key: key.clone(),
+            title,
+            poster_url,
+            file: file.clone(),
+            bytes_done: 0,
+            bytes_total: None,
+            state: "downloading".into(),
+        };
+        {
+            let mut entries = self.entries.lock().unwrap();
+            entries.insert(key.clone(), entry.clone());
+            self.persist_locked(&entries);
+        }
+
+        let store = Arc::clone(self);
+        tokio::spawn(async move {
+            let ok = store.fetch(&key, &url, &file).await;
+            store.update(
+                &key,
+                |e| e.state = if ok { "done".into() } else { "error".into() },
+                true,
+            );
+        });
+        entry
+    }
+
+    async fn fetch(&self, key: &str, url: &str, file: &str) -> bool {
+        let client = reqwest::Client::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .unwrap_or_default();
+        let Ok(mut resp) = client.get(url).send().await else { return false };
+        if !resp.status().is_success() {
+            return false;
+        }
+        let total = resp.content_length();
+        self.update(key, |e| e.bytes_total = total, false);
+
+        let part = format!("{file}.part");
+        let Ok(mut out) = tokio::fs::File::create(&part).await else { return false };
+
+        use tokio::io::AsyncWriteExt;
+        let mut done: u64 = 0;
+        let mut last_persist: u64 = 0;
+        loop {
+            match resp.chunk().await {
+                Ok(Some(chunk)) => {
+                    if out.write_all(&chunk).await.is_err() {
+                        return false;
+                    }
+                    done += chunk.len() as u64;
+                    // Manifest writes are throttled; live progress stays
+                    // in memory for /downloads/list polling.
+                    let persist = done - last_persist > 64 * 1024 * 1024;
+                    if persist {
+                        last_persist = done;
+                    }
+                    self.update(key, |e| e.bytes_done = done, persist);
+                }
+                Ok(None) => break,
+                Err(_) => return false,
+            }
+        }
+        if out.flush().await.is_err() {
+            return false;
+        }
+        drop(out);
+        tokio::fs::rename(&part, file).await.is_ok()
+    }
+}

@@ -443,6 +443,45 @@ final class StreamerManager: ObservableObject {
         ])
     }
 
+    // MARK: - Offline downloads
+
+    struct DownloadEntry: Codable, Identifiable, Hashable {
+        let key: String
+        let title: String
+        let poster_url: String?
+        let file: String
+        let bytes_done: UInt64
+        let bytes_total: UInt64?
+        let state: String   // "downloading" | "done" | "error"
+        var id: String { key }
+
+        var fraction: Double? {
+            guard let total = bytes_total, total > 0 else { return nil }
+            return Double(bytes_done) / Double(total)
+        }
+    }
+
+    func downloadsList() async -> [DownloadEntry] {
+        guard let baseURL else { return [] }
+        let url = baseURL.appendingPathComponent("downloads/list")
+        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return [] }
+        return (try? JSONDecoder().decode([DownloadEntry].self, from: data)) ?? []
+    }
+
+    func startDownload(key: String, url: String, title: String, poster: String?) {
+        var items = [
+            URLQueryItem(name: "key", value: key),
+            URLQueryItem(name: "url", value: url),
+            URLQueryItem(name: "title", value: title),
+        ]
+        if let poster { items.append(URLQueryItem(name: "poster", value: poster)) }
+        fireAndForget("downloads/start", items)
+    }
+
+    func deleteDownload(key: String) {
+        fireAndForget("downloads/delete", [URLQueryItem(name: "key", value: key)])
+    }
+
     private func fireAndForget(_ path: String, _ items: [URLQueryItem]) {
         guard let baseURL else { return }
         var comps = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
