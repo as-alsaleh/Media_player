@@ -63,6 +63,9 @@ struct SettingsView: View {
     @AppStorage("jellyfinUserName") private var jellyfinUserName = ""
     @State private var showJellyfinAuth = false
 
+    // TMDB enrichment for SMB-only libraries (user-supplied key)
+    @AppStorage("tmdbApiKey") private var tmdbApiKey = ""
+
     /// Track-selection languages (mpv alang/slang code lists).
     private static let trackLanguages: [(String, String)] = [
         ("Auto", ""), ("English", "eng,en"), ("Arabic", "ara,ar"),
@@ -310,6 +313,17 @@ struct SettingsView: View {
                 field("Server", text: $jellyfinURL, prompt: "http://192.168.1.10:8096")
                 field("API key", text: $jellyfinApiKey, prompt: "from Dashboard → API Keys")
                 Text("Jellyfin's trickplay images power the mini picture when scrubbing the timeline. Reconnect (or restart the app) after changing.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.4))
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 12)
+        }
+
+        card("TMDB (Artwork for SMB Libraries)") {
+            VStack(spacing: 8) {
+                field("API key", text: $tmdbApiKey, prompt: "from themoviedb.org → Settings → API")
+                Text("Posters, backdrops and overviews for files indexed straight off an SMB share. Plex and Jellyfin items already come with artwork. Free key; TMDB's terms apply to your use.")
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.4))
                     .multilineTextAlignment(.center)

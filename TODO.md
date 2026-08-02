@@ -61,10 +61,9 @@ Rust engine's surface against what the Swift apps actually call.
 - [ ] **iOS device signing in `project.yml`.** Both targets set
   `CODE_SIGNING_ALLOWED: "NO"`, which blocks device installs. Set it in
   `project.yml`, not the Xcode UI — XcodeGen regenerates and wipes UI config.
-- [ ] **Bring-your-own TMDB key in settings.** `tmdb_key` is already
-  `Option<String>` injected at runtime. Making it explicit keeps TMDB's
-  non-commercial terms the user's obligation and preserves the option to charge
-  later without triggering their commercial license.
+- [x] **Bring-your-own TMDB key in settings.** Settings → Files has a "TMDB
+  (Artwork for SMB Libraries)" card writing the `tmdbApiKey` default the
+  engine already reads, with the terms note.
 - [ ] **App Store submission materials.** Demo server + credentials in review
   notes (reviewers can't test a client with no server — the most common
   rejection for this category); privacy label "Data Not Collected"; describe it
