@@ -257,3 +257,109 @@ async fn walk(
     }
     Ok(files)
 }
+
+#[cfg(test)]
+impl Index {
+    /// Test-only row insertion — production rows only enter via scan(),
+    /// which needs a live SMB share.
+    fn insert_movie_for_test(&self, title: &str, year: Option<u16>, path: &str, size: u64) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO movies (title, year, path, size) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(path) DO UPDATE SET size = excluded.size",
+            rusqlite::params![title, year, path, size as i64],
+        )
+        .unwrap();
+    }
+
+    fn insert_episode_for_test(&self, show: &str, season: u16, episode: u16, path: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO episodes (show, season, episode, path, size)
+             VALUES (?1, ?2, ?3, ?4, 1)
+             ON CONFLICT(path) DO UPDATE SET size = excluded.size",
+            rusqlite::params![show, season, episode, path],
+        )
+        .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_index(name: &str) -> (Index, std::path::PathBuf) {
+        let path = std::env::temp_dir()
+            .join(format!("mediacore-test-{}-{}.sqlite", std::process::id(), name));
+        std::fs::remove_file(&path).ok();
+        (Index::open(&path).unwrap(), path)
+    }
+
+    #[test]
+    fn stem_and_video_detection() {
+        assert_eq!(stem("movies/Heat (1995)/Heat.1995.1080p.mkv"), "Heat.1995.1080p");
+        assert_eq!(stem("no_extension"), "no_extension");
+        assert!(is_video("a.MKV"));
+        assert!(is_video("b.mp4"));
+        assert!(!is_video("c.srt"));
+        assert!(!is_video("noext"));
+    }
+
+    #[test]
+    fn open_is_idempotent_and_migrates() {
+        let (_first, path) = temp_index("reopen");
+        // Second open on the same file must not fail (CREATE IF NOT EXISTS
+        // + tolerated ALTER TABLE failure).
+        let again = Index::open(&path);
+        assert!(again.is_ok());
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn movie_roundtrip_upsert_and_meta() {
+        let (idx, path) = temp_index("movies");
+        idx.insert_movie_for_test("Heat", Some(1995), "movies/heat.mkv", 100);
+        // Same path again = upsert, not a duplicate.
+        idx.insert_movie_for_test("Heat", Some(1995), "movies/heat.mkv", 200);
+        let rows = idx.movies().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title, "Heat");
+        assert_eq!(rows[0].size, 200);
+        assert_eq!(rows[0].poster_url, None);
+
+        idx.set_movie_meta(rows[0].id, Some("poster"), Some("plot"), Some("backdrop"));
+        let rows = idx.movies().unwrap();
+        assert_eq!(rows[0].poster_url.as_deref(), Some("poster"));
+        assert_eq!(rows[0].overview.as_deref(), Some("plot"));
+        assert_eq!(rows[0].backdrop_url.as_deref(), Some("backdrop"));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn shows_group_episodes_and_join_meta() {
+        let (idx, path) = temp_index("shows");
+        idx.insert_episode_for_test("Archer", 1, 1, "tv/archer/s01e01.mkv");
+        idx.insert_episode_for_test("Archer", 1, 2, "tv/archer/s01e02.mkv");
+        idx.insert_episode_for_test("Bluey", 2, 5, "tv/bluey/s02e05.mkv");
+        idx.set_show_meta("Archer", Some("p"), Some("b"), Some("o"));
+        // Upsert replaces, not duplicates.
+        idx.set_show_meta("Archer", Some("p2"), Some("b2"), Some("o2"));
+
+        let shows = idx.shows().unwrap();
+        assert_eq!(shows.len(), 2);
+        let archer = shows.iter().find(|s| s.name == "Archer").unwrap();
+        assert_eq!(archer.episode_count, 2);
+        assert_eq!(archer.poster_url.as_deref(), Some("p2"));
+        let bluey = shows.iter().find(|s| s.name == "Bluey").unwrap();
+        assert_eq!(bluey.episode_count, 1);
+        assert_eq!(bluey.poster_url, None);
+
+        // Episode ordering: show, then season, then episode.
+        let eps = idx.episodes().unwrap();
+        assert_eq!(
+            eps.iter().map(|e| (e.season, e.episode)).collect::<Vec<_>>(),
+            vec![(1, 1), (1, 2), (2, 5)]
+        );
+        std::fs::remove_file(&path).ok();
+    }
+}
