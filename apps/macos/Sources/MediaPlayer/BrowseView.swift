@@ -655,6 +655,24 @@ struct BrowseView: View {
                     .padding(.trailing, edgePad + 22)
                     .padding(.bottom, 16)
                 }
+
+                #if os(tvOS)
+                // Focusable page chevrons — the Siri Remote's way to flip
+                // slides (drag/scroll gestures don't exist there).
+                if entries.count > 1 {
+                    HStack {
+                        heroPageButton(systemImage: "chevron.left") {
+                            stepHero(-1, count: entries.count)
+                        }
+                        Spacer()
+                        heroPageButton(systemImage: "chevron.right") {
+                            stepHero(1, count: entries.count)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                    .padding(.horizontal, 8)
+                }
+                #endif
             }
             #if !os(tvOS)
             // Swipe / trackpad-drag between slides.
@@ -683,6 +701,19 @@ struct BrowseView: View {
             }
         }
     }
+
+    #if os(tvOS)
+    private func heroPageButton(systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 26, weight: .bold))
+                .foregroundStyle(.white.opacity(0.85))
+                .frame(width: 56, height: 110)
+                .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+    }
+    #endif
 
     @ViewBuilder
     private func heroCard(_ entry: HeroEntry) -> some View {

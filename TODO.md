@@ -81,8 +81,9 @@ Rust engine's surface against what the Swift apps actually call.
   two real bugs, both fixed: `rustls-tls-native-roots` alone left iOS/tvOS
   with zero CAs (every TLS fetch silently failed — webpki snapshot re-added
   as fallback), and a stale SMB credential hard-killed the whole engine even
-  when Plex/Jellyfin could serve (now degrades with a warning). Remaining
-  nice-to-have: hero paging directly from the remote.
+  when Plex/Jellyfin could serve (now degrades with a warning). Hero paging
+  from the remote added: focusable edge chevrons on tvOS (rendered in the
+  simulator; interactive click-through pending a free screen).
 
 ## Apple — hardening
 
