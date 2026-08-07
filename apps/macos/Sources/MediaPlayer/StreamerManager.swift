@@ -68,6 +68,9 @@ final class StreamerManager: ObservableObject {
             ])
             env["MEDIACORED_PASSWORD"] = password
         }
+        if let omdbKey = UserDefaults.standard.string(forKey: "omdbApiKey"), !omdbKey.isEmpty {
+            env["MEDIACORED_OMDB_KEY"] = omdbKey
+        }
         if let tmdbKey = UserDefaults.standard.string(forKey: "tmdbApiKey"), !tmdbKey.isEmpty {
             env["MEDIACORED_TMDB_KEY"] = tmdbKey
         }

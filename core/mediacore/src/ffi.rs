@@ -81,6 +81,8 @@ pub fn start_streamer(
             streamer = streamer.with_downloads_dir(dir);
         }
         streamer = streamer.with_tmdb_key(tmdb_api_key.clone());
+        // In-process apps (iOS/tvOS) set this via setenv before starting.
+        streamer = streamer.with_omdb_key(std::env::var("MEDIACORED_OMDB_KEY").ok());
         if let (Some(url), Some(token)) = (&plex_url, &plex_token) {
             streamer = streamer.with_plex(Some(
                 crate::plex::PlexSource::new(url.clone(), token.clone())

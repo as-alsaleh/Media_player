@@ -20,6 +20,10 @@ pub struct MovieRow {
     pub poster_url: Option<String>,
     pub overview: Option<String>,
     pub backdrop_url: Option<String>,
+    /// 0–10 critic score (OMDb Rotten Tomatoes when enriched).
+    pub critic_rating: Option<f64>,
+    /// 0–10 audience score (OMDb IMDb rating).
+    pub audience_rating: Option<f64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -29,6 +33,8 @@ pub struct ShowRow {
     pub poster_url: Option<String>,
     pub backdrop_url: Option<String>,
     pub overview: Option<String>,
+    pub critic_rating: Option<f64>,
+    pub audience_rating: Option<f64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -77,6 +83,11 @@ impl Index {
         )?;
         // Migration for databases created before backdrops existed.
         let _ = conn.execute("ALTER TABLE movies ADD COLUMN backdrop_url TEXT", []);
+        // Migration: OMDb ratings for SMB-only libraries.
+        let _ = conn.execute("ALTER TABLE movies ADD COLUMN critic_rating REAL", []);
+        let _ = conn.execute("ALTER TABLE movies ADD COLUMN audience_rating REAL", []);
+        let _ = conn.execute("ALTER TABLE show_meta ADD COLUMN critic_rating REAL", []);
+        let _ = conn.execute("ALTER TABLE show_meta ADD COLUMN audience_rating REAL", []);
         Ok(Self { conn: Mutex::new(conn) })
     }
 
@@ -124,7 +135,8 @@ impl Index {
     pub fn movies(&self) -> rusqlite::Result<Vec<MovieRow>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, title, year, path, size, poster_url, overview, backdrop_url
+            "SELECT id, title, year, path, size, poster_url, overview, backdrop_url,
+                    critic_rating, audience_rating
              FROM movies ORDER BY title COLLATE NOCASE",
         )?;
         let rows = stmt
@@ -138,6 +150,8 @@ impl Index {
                     poster_url: r.get(5)?,
                     overview: r.get(6)?,
                     backdrop_url: r.get(7)?,
+                    critic_rating: r.get(8)?,
+                    audience_rating: r.get(9)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -147,7 +161,8 @@ impl Index {
     pub fn shows(&self) -> rusqlite::Result<Vec<ShowRow>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT e.show, COUNT(*), m.poster_url, m.backdrop_url, m.overview
+            "SELECT e.show, COUNT(*), m.poster_url, m.backdrop_url, m.overview,
+                    m.critic_rating, m.audience_rating
              FROM episodes e LEFT JOIN show_meta m ON m.name = e.show
              GROUP BY e.show ORDER BY e.show COLLATE NOCASE",
         )?;
@@ -159,6 +174,8 @@ impl Index {
                     poster_url: r.get(2)?,
                     backdrop_url: r.get(3)?,
                     overview: r.get(4)?,
+                    critic_rating: r.get(5)?,
+                    audience_rating: r.get(6)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -202,6 +219,27 @@ impl Index {
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    pub fn set_movie_ratings(&self, id: i64, critic: Option<f64>, audience: Option<f64>) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE movies SET critic_rating = ?2, audience_rating = ?3 WHERE id = ?1",
+            rusqlite::params![id, critic, audience],
+        )
+        .ok();
+    }
+
+    pub fn set_show_ratings(&self, name: &str, critic: Option<f64>, audience: Option<f64>) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO show_meta (name, critic_rating, audience_rating)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(name) DO UPDATE SET critic_rating = excluded.critic_rating,
+               audience_rating = excluded.audience_rating",
+            rusqlite::params![name, critic, audience],
+        )
+        .ok();
     }
 
     pub fn set_movie_meta(

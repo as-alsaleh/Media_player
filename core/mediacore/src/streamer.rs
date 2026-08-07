@@ -36,6 +36,8 @@ pub struct AppState {
     pub jellyfin: Option<Arc<crate::jellyfin::JellyfinSource>>,
     /// Offline downloads (None when no writable data dir was provided).
     pub downloads: Option<Arc<crate::downloads::DownloadStore>>,
+    /// OMDb key for ratings on SMB-only libraries (user-supplied).
+    pub omdb_key: Option<String>,
 }
 
 /// Unified library item shapes served to the UI, regardless of source.
@@ -141,6 +143,7 @@ impl Streamer {
                 restricted: false,
                 jellyfin: None,
                 downloads: None,
+                omdb_key: None,
             },
         }
     }
@@ -173,6 +176,11 @@ impl Streamer {
     pub fn with_downloads_dir(mut self, dir: Option<std::path::PathBuf>) -> Self {
         self.state.downloads =
             dir.map(|d| Arc::new(crate::downloads::DownloadStore::new(d)));
+        self
+    }
+
+    pub fn with_omdb_key(mut self, key: Option<String>) -> Self {
+        self.state.omdb_key = key.filter(|k| !k.is_empty());
         self
     }
 
@@ -253,6 +261,9 @@ async fn library_scan(
     let lang = q.get("lang").cloned().unwrap_or_default();
     let Some(fs) = &st.fs else {
         // Plex-only mode: nothing to scan, but enrichment can still run.
+        if let Some(key) = &st.omdb_key {
+            crate::omdb::enrich(&index, key).await;
+        }
         let enriched = match &st.tmdb_key {
             Some(key) => crate::tmdb::enrich(&index, key, &lang).await,
             None => 0,
@@ -264,6 +275,9 @@ async fn library_scan(
     let tv_root = q.get("tv").map(String::as_str).unwrap_or("tv");
     match index.scan(fs, movies_root, tv_root).await {
         Ok((m, e)) => {
+            if let Some(key) = &st.omdb_key {
+                crate::omdb::enrich(&index, key).await;
+            }
             let enriched = match &st.tmdb_key {
                 Some(key) => crate::tmdb::enrich(&index, key, &lang).await,
                 None => 0,
@@ -312,8 +326,8 @@ async fn library_movies(State(st): State<AppState>) -> Response {
                     duration_secs: None,
                     tmdb_id: None,
                     added_at: None,
-                    critic_rating: None,
-                    audience_rating: None,
+                    critic_rating: m.critic_rating,
+                    audience_rating: m.audience_rating,
                 },
             );
         }
@@ -493,8 +507,8 @@ async fn library_shows(State(st): State<AppState>) -> Response {
                     overview: s.overview,
                     source: "local",
                     added_at: None,
-                    critic_rating: None,
-                    audience_rating: None,
+                    critic_rating: s.critic_rating,
+                    audience_rating: s.audience_rating,
                 },
             );
         }

@@ -7,6 +7,7 @@
 pub mod ffi;
 pub mod downloads;
 pub mod index;
+pub mod omdb;
 pub mod jellyfin;
 pub mod parse;
 pub mod plex;

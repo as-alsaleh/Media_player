@@ -55,6 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         streamer = streamer.with_downloads_dir(db.parent().map(|p| p.join("Downloads")));
     }
     streamer = streamer.with_tmdb_key(std::env::var("MEDIACORED_TMDB_KEY").ok());
+    streamer = streamer.with_omdb_key(std::env::var("MEDIACORED_OMDB_KEY").ok());
     if let (Some(url), Ok(token)) = (&args.plex_url, std::env::var("MEDIACORED_PLEX_TOKEN")) {
         let admin = std::env::var("MEDIACORED_PLEX_ADMIN_TOKEN").ok();
         streamer = streamer.with_plex(Some(

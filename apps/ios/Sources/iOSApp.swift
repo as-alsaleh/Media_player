@@ -111,6 +111,10 @@ struct RootView: View {
             ?? ProcessInfo.processInfo.environment["MEDIAPLAYER_TMDB_KEY"]
         let jellyfinURL = defaults.string(forKey: "jellyfinURL")
         let jellyfinKey = defaults.string(forKey: "jellyfinApiKey")
+        // The in-process engine reads the OMDb key from the environment.
+        if let omdbKey = defaults.string(forKey: "omdbApiKey"), !omdbKey.isEmpty {
+            setenv("MEDIACORED_OMDB_KEY", omdbKey, 1)
+        }
         let saved = ShareStore.load()
         let (server, share, username) = (saved?.server ?? "", saved?.share ?? "", saved?.username ?? "")
         let password = ProcessInfo.processInfo.environment["MEDIAPLAYER_PASSWORD"]

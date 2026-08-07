@@ -63,8 +63,9 @@ struct SettingsView: View {
     @AppStorage("jellyfinUserName") private var jellyfinUserName = ""
     @State private var showJellyfinAuth = false
 
-    // TMDB enrichment for SMB-only libraries (user-supplied key)
+    // TMDB / OMDb enrichment for SMB-only libraries (user-supplied keys)
     @AppStorage("tmdbApiKey") private var tmdbApiKey = ""
+    @AppStorage("omdbApiKey") private var omdbApiKey = ""
 
     /// Track-selection languages (mpv alang/slang code lists).
     private static let trackLanguages: [(String, String)] = [
@@ -328,6 +329,17 @@ struct SettingsView: View {
             VStack(spacing: 8) {
                 field("API key", text: $tmdbApiKey, prompt: "from themoviedb.org → Settings → API")
                 Text("Posters, backdrops and overviews for files indexed straight off an SMB share. Plex and Jellyfin items already come with artwork. Free key; TMDB's terms apply to your use.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.4))
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 12)
+        }
+
+        card("OMDb (Ratings for SMB Libraries)") {
+            VStack(spacing: 8) {
+                field("API key", text: $omdbApiKey, prompt: "free key from omdbapi.com")
+                Text("Rotten Tomatoes and IMDb scores for SMB-only items — Plex and Jellyfin already provide ratings. Applied on the next library scan.")
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.4))
                     .multilineTextAlignment(.center)

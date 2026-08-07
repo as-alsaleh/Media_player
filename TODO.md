@@ -57,7 +57,10 @@ Rust engine's surface against what the Swift apps actually call.
   Jellyfin `CriticRating`/`CommunityRating` are parsed, served on
   `/library/movies` and `/library/shows`, and shown as rosette/audience badges
   in the movie and show detail sheets (verified live: 78/82 movies had RT
-  scores). OMDb fallback for the SMB-only library remains open.
+  scores). OMDb fallback for SMB-only libraries added: Settings → Files
+  takes a free omdbapi.com key; scans enrich items missing ratings
+  (RT% → critic, IMDb → audience) into the index db. Parsing is
+  unit-tested; a live run needs the user's own OMDb key.
 - [x] **Offline downloads.** `downloads.rs` streams the source URL into
   `…/MediaPlayer/Downloads` with a JSON manifest (`/downloads/start`, `/list`,
   `/delete`); interrupted transfers surface as errors on restart. Movie detail
