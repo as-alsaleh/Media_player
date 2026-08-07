@@ -22,6 +22,7 @@ final class MetalHostView: NSView {
     /// Fired (debounced) after the drawable size actually changes.
     var onResize: (() -> Void)?
     private var resizeWork: DispatchWorkItem?
+    private var windowObservers: [NSObjectProtocol] = []
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -56,6 +57,45 @@ final class MetalHostView: NSView {
         let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
         guard size.width > 1, size.height > 1, metalLayer.drawableSize != size else { return }
         metalLayer.drawableSize = size
+        scheduleReconfig()
+    }
+
+    // Belt and suspenders: window-state transitions can leave MoltenVK's
+    // swapchain at a stale extent even when the drawable size compares
+    // equal (the guarded setter swallows the 1×1 poison, so the "change"
+    // that would trigger a poke never happens). Force a reconfig on every
+    // fullscreen / minimize / screen transition unconditionally.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        windowObservers.forEach(NotificationCenter.default.removeObserver)
+        windowObservers = []
+        guard let window else { return }
+        let transitions: [Notification.Name] = [
+            NSWindow.didEnterFullScreenNotification,
+            NSWindow.didExitFullScreenNotification,
+            NSWindow.didDeminiaturizeNotification,
+            NSWindow.didChangeScreenNotification,
+        ]
+        for name in transitions {
+            windowObservers.append(NotificationCenter.default.addObserver(
+                forName: name, object: window, queue: .main
+            ) { [weak self] _ in
+                self?.forceReconfig()
+            })
+        }
+    }
+
+    private func forceReconfig() {
+        let scale = window?.backingScaleFactor ?? 2.0
+        metalLayer.contentsScale = scale
+        let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+        if size.width > 1, size.height > 1 {
+            metalLayer.drawableSize = size
+        }
+        scheduleReconfig()
+    }
+
+    private func scheduleReconfig() {
         // The embedded MoltenVK context only reads the drawable size on
         // reconfig — poke the player once the size settles so the
         // swapchain follows (fullscreen toggles, minimize/restore).
@@ -63,6 +103,10 @@ final class MetalHostView: NSView {
         let work = DispatchWorkItem { [weak self] in self?.onResize?() }
         resizeWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+    }
+
+    deinit {
+        windowObservers.forEach(NotificationCenter.default.removeObserver)
     }
 }
 

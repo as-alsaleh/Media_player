@@ -11,14 +11,14 @@ Rust engine's surface against what the Swift apps actually call.
   shows by max(show added_at, newest episode added_at). Verified live —
   Brickleberry (1 old episode + 35 added today) is now first in Recently
   Added.
-- [ ] **Fullscreen regression: video renders only in a small top-right
-  region.** Same symptom family as the fixed minimize→restore→fullscreen
-  MoltenVK drawable-size bug (GuardedMetalLayer + vf-null reconfig poke in
-  PlayerView.swift / MPVPlayer.refreshRenderSize). Reproduce the exact
-  sequence (user hit it during normal fullscreen use today), check whether
-  some resize path misses the debounced refreshRenderSize() poke — e.g.
-  fullscreen straight from a freshly opened player, display sleep/wake, or
-  the always-mounted-player change altering when layout() fires.
+- [x] **Fullscreen regression: video renders only in a small top-right
+  region.** Could not reproduce (windowed→F and minimize→restore→F both
+  render correctly), but hardened anyway: the reconfig poke previously
+  fired only when the drawable size *changed*, so a stale swapchain at an
+  unchanged size never recovered. MetalHostView now forces a reconfig on
+  every window transition (enter/exit fullscreen, deminiaturize, screen
+  change) unconditionally. If the user hits it again, the exact sequence
+  is the missing datum.
 
 - [x] **Context menu on library items.** Right-click (macOS) / long-press
   (iOS) on Continue Watching cards, poster carousels, movie grids and the
