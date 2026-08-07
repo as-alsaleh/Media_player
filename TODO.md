@@ -6,17 +6,11 @@ Rust engine's surface against what the Swift apps actually call.
 
 ## User-reported issues (2026-08-02) — fix first
 
-- [ ] **New episodes of an existing show never reach Recently Added / hero.**
-  Root-caused live: show rows sort by Plex's show-level `addedAt`, which is
-  stamped when the show first entered the library — adding a whole season
-  later (Brickleberry: 1 old episode → 36) doesn't bump it, so the "new"
-  show is invisible on Home (it IS in the TV Shows grid with all episodes;
-  the engine serves everything). Fix: thread `added_at` through episodes
-  (PlexEpisode/JfEpisode/EpisodeOut/LibraryEpisode — Plex item field is
-  already parsed; Jellyfin needs DateCreated in the episodes Fields) and
-  rank shows in Recently Added + hero by max(show added_at, newest episode
-  added_at). Partial engine work was started then parked — check git status
-  before beginning.
+- [x] **New episodes of an existing show never reach Recently Added / hero.**
+  Fixed: `added_at` now flows through episodes end-to-end and Home ranks
+  shows by max(show added_at, newest episode added_at). Verified live —
+  Brickleberry (1 old episode + 35 added today) is now first in Recently
+  Added.
 - [ ] **Fullscreen regression: video renders only in a small top-right
   region.** Same symptom family as the fixed minimize→restore→fullscreen
   MoltenVK drawable-size bug (GuardedMetalLayer + vf-null reconfig poke in
@@ -26,20 +20,18 @@ Rust engine's surface against what the Swift apps actually call.
   fullscreen straight from a freshly opened player, display sleep/wake, or
   the always-mounted-player change altering when layout() fires.
 
-- [ ] **Context menu on library items.** Right-click (macOS) / long-press
-  (iOS/tvOS) on a poster or Continue Watching card should offer the regular
-  options: Remove from Continue Watching, Mark watched / Mark unwatched,
-  Download, Play from beginning. Engine already has `/plex/watched` and
-  `/jellyfin/watched`; "remove from Continue Watching" on Plex maps to
-  marking played or clearing the resume point
-  (`/:/unscrobble` + timeline stopped at 0 — verify which combination the
-  server honors for Continue Watching removal).
-- [ ] **Refresh doesn't pick up newly added Plex items.** The ⟳ rescan did
-  not surface shows/movies added to Plex today. Likely cause: the engine
-  fetches Plex sections live per /library call, but the app caches rows
-  until `refreshTick` changes, or the daemon caches section listings —
-  reproduce, then make ⟳ (and a periodic/on-focus refresh) always re-pull
-  from the server.
+- [x] **Context menu on library items.** Right-click (macOS) / long-press
+  (iOS) on Continue Watching cards, poster carousels, movie grids and the
+  Recently Added row: Play from Beginning, Remove from Continue Watching
+  (new `/plex/clear_progress` — PUT /actions/removeFromContinueWatching
+  with unscrobble fallback — and `/jellyfin/clear_progress`), Mark
+  Watched/Unwatched, Download. tvOS is a no-op for now (SwiftUI has no
+  context menus there).
+- [x] **Refresh doesn't pick up newly added Plex items.** Root-caused with
+  the user's Brickleberry case: ⟳ does re-pull everything (engine fetches
+  Plex live, load() refetches all rows) — the items were present all along
+  in the TV Shows grid; they were invisible on Home because of the
+  show-level added_at issue above. Fixed by the same change.
 
 ## Apple — feature gaps
 

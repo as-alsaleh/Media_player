@@ -102,6 +102,7 @@ struct EpisodeOut {
     last_viewed_at: Option<u64>,
     duration_secs: Option<f64>,
     show_tmdb_id: Option<u64>,
+    added_at: Option<u64>,
 }
 
 fn local_stream_url(path: &str) -> String {
@@ -197,6 +198,8 @@ impl Streamer {
             .route("/plex/subtitles", get(plex_subtitles))
             .route("/plex/preview", get(plex_preview))
             .route("/plex/rate", get(plex_rate))
+            .route("/plex/clear_progress", get(plex_clear_progress))
+            .route("/jellyfin/clear_progress", get(jellyfin_clear_progress))
             .route("/plex/watched", get(plex_watched))
             .route("/plex/login/start", get(plex_login_start))
             .route("/plex/login/poll", get(plex_login_poll))
@@ -398,6 +401,7 @@ async fn library_episodes(State(st): State<AppState>) -> Response {
                     last_viewed_at: None,
                     duration_secs: None,
                     show_tmdb_id: None,
+                    added_at: None,
                 },
             );
         }
@@ -429,6 +433,7 @@ async fn library_episodes(State(st): State<AppState>) -> Response {
                     watched: e.watched,
                     last_viewed_at: e.last_viewed_at,
                     duration_secs: e.duration_secs,
+                    added_at: e.added_at,
                 },
             );
         }
@@ -460,6 +465,7 @@ async fn library_episodes(State(st): State<AppState>) -> Response {
                     watched: e.watched,
                     last_viewed_at: e.last_viewed_at,
                     duration_secs: e.duration_secs,
+                    added_at: e.added_at,
                 },
             );
         }
@@ -724,6 +730,28 @@ async fn plex_rate(
         return (StatusCode::BAD_REQUEST, "plex + rating_key + rating required").into_response();
     };
     Json(serde_json::json!({"ok": plex.rate(key, rating).await})).into_response()
+}
+
+async fn plex_clear_progress(
+    State(st): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (Some(plex), Some(key)) = (&st.plex, q.get("rating_key")) else {
+        return (StatusCode::BAD_REQUEST, "plex + rating_key required").into_response();
+    };
+    Json(serde_json::json!({"ok": plex.clear_progress(key).await})).into_response()
+}
+
+async fn jellyfin_clear_progress(
+    State(st): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (Some(jf), Some(item)) = (&st.jellyfin, q.get("item_id")) else {
+        return (StatusCode::BAD_REQUEST, "jellyfin + item_id required").into_response();
+    };
+    // Position 0 + stopped clears the resume point server-side.
+    Json(serde_json::json!({"ok": jf.report_progress(item, 0.0, "stopped").await}))
+        .into_response()
 }
 
 async fn plex_watched(

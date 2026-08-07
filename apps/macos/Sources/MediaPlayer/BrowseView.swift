@@ -521,9 +521,27 @@ struct BrowseView: View {
         }
     }
 
+    /// A show is as "new" as its newest episode — the show-level added_at
+    /// never changes when later seasons land, which used to hide freshly
+    /// downloaded seasons of long-known shows from Home entirely.
+    private var showRecency: [String: UInt64] {
+        var newest: [String: UInt64] = [:]
+        for ep in episodes {
+            if let t = ep.added_at, t > newest[ep.show, default: 0] {
+                newest[ep.show] = t
+            }
+        }
+        return newest
+    }
+
+    private func recency(of show: StreamerManager.LibraryShow) -> UInt64 {
+        max(show.added_at ?? 0, showRecency[show.name] ?? 0)
+    }
+
     /// Alternating mix of recent movies and shows with artwork,
     /// newest arrivals first.
     private var heroEntries: [HeroEntry] {
+        let byShow = showRecency
         let heroMovies = movies
             .filter { $0.backdrop_url != nil && !$0.watched }
             .sorted { ($0.added_at ?? 0, $0.year ?? 0) > ($1.added_at ?? 0, $1.year ?? 0) }
@@ -531,7 +549,8 @@ struct BrowseView: View {
             .map(HeroEntry.movie)
         let heroShows = shows
             .filter { $0.backdrop_url != nil }
-            .sorted { ($0.added_at ?? 0) > ($1.added_at ?? 0) }
+            .sorted { max($0.added_at ?? 0, byShow[$0.name] ?? 0)
+                    > max($1.added_at ?? 0, byShow[$1.name] ?? 0) }
             .prefix(3)
             .map(HeroEntry.show)
         var mixed: [HeroEntry] = []
@@ -835,6 +854,20 @@ struct BrowseView: View {
             }
         }
 
+        var progressKey: String {
+            switch self {
+            case .movie(let m): return m.progress_key
+            case .episode(let e, _): return e.progress_key
+            }
+        }
+
+        var streamUrl: String {
+            switch self {
+            case .movie(let m): return m.stream_url
+            case .episode(let e, _): return e.stream_url
+            }
+        }
+
         var poster: String? {
             switch self {
             case .movie(let m): return m.poster_url
@@ -914,14 +947,69 @@ struct BrowseView: View {
             sectionHeader("Continue Watching")
             RowScroller(items: continueWatching) { item in
                 ContinueCard(item: item) { tapped(item) }
+                    .itemContextMenu { itemMenu(for: item) }
             }
         }
     }
 
-    /// Newest arrivals on the server, movies and shows mixed.
+    // MARK: - Item context menu (right-click / long-press)
+
+    @ViewBuilder
+    private func itemMenu(for item: CardItem) -> some View {
+        Button {
+            playFromStart(item)
+        } label: {
+            Label("Play from Beginning", systemImage: "gobackward")
+        }
+        if item.progress != nil {
+            Button {
+                streamer.clearProgress(progressKey: item.progressKey)
+                reloadSoon()
+            } label: {
+                Label("Remove from Continue Watching", systemImage: "minus.circle")
+            }
+        }
+        Button {
+            streamer.setWatched(progressKey: item.progressKey, watched: !item.watched)
+            reloadSoon()
+        } label: {
+            Label(item.watched ? "Mark Unwatched" : "Mark Watched",
+                  systemImage: item.watched ? "circle" : "checkmark.circle")
+        }
+        if !isRestrictedProfile {
+            Button {
+                let url = streamer.resolveStream(item.streamUrl)?.absoluteString
+                    ?? item.streamUrl
+                streamer.startDownload(key: item.progressKey, url: url,
+                                       title: item.label, poster: item.poster)
+            } label: {
+                Label("Download", systemImage: "arrow.down.circle")
+            }
+        }
+    }
+
+    private func playFromStart(_ item: CardItem) {
+        guard let url = streamer.resolveStream(item.streamUrl) else { return }
+        NowPlaying.nextEpisode = nil
+        NowPlaying.nextLabel = nil
+        WatchProgress.clear(path: item.progressKey)
+        onPlay(url, item.label, item.progressKey, nil)
+    }
+
+    /// Server-side watch-state writes land asynchronously — refetch shortly
+    /// after so the rows reflect the change.
+    private func reloadSoon() {
+        Task {
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            await load()
+        }
+    }
+
+    /// Newest arrivals on the server, movies and shows mixed. Shows rank by
+    /// their newest episode, so a fresh season of an old show surfaces here.
     private var recentlyAdded: [HeroEntry] {
         let m = movies.map { (($0.added_at ?? 0), HeroEntry.movie($0)) }
-        let s = shows.map { (($0.added_at ?? 0), HeroEntry.show($0)) }
+        let s = shows.map { (recency(of: $0), HeroEntry.show($0)) }
         return (m + s)
             .filter { $0.0 > 0 }
             .sorted { $0.0 > $1.0 }
@@ -939,6 +1027,7 @@ struct BrowseView: View {
                                progress: nil, watched: m.watched) {
                         selectedMovie = m
                     }
+                    .itemContextMenu { itemMenu(for: .movie(m)) }
                 case .show(let s):
                     PosterCard(posterURL: s.poster_url, label: s.name, progress: nil) {
                         selectedShow = s
@@ -956,6 +1045,7 @@ struct BrowseView: View {
                            progress: item.progress, watched: item.watched) {
                     tappedInfo(item)
                 }
+                .itemContextMenu { itemMenu(for: item) }
             }
         }
     }
@@ -977,6 +1067,7 @@ struct BrowseView: View {
                 PosterCard(posterURL: item.poster, label: item.label, progress: item.progress, watched: item.watched) {
                     tappedInfo(item)
                 }
+                .itemContextMenu { itemMenu(for: item) }
             }
         }
         .padding(.horizontal, edgePad)
@@ -1344,6 +1435,19 @@ struct ContinueCard: View {
 // MARK: - Detail sheets
 
 /// Movie page: backdrop, play/resume, rating stars, watched toggle.
+extension View {
+    /// Right-click (macOS) / long-press (iOS) menu; tvOS has no SwiftUI
+    /// context menus, so it's a no-op there.
+    @ViewBuilder
+    func itemContextMenu(@ViewBuilder _ content: () -> some View) -> some View {
+        #if os(tvOS)
+        self
+        #else
+        contextMenu { content() }
+        #endif
+    }
+}
+
 /// Offline downloads: live progress, play-from-disk, delete.
 struct DownloadsSheet: View {
     @ObservedObject var streamer: StreamerManager

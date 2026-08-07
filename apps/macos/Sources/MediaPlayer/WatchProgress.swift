@@ -40,4 +40,11 @@ enum WatchProgress {
         dict[path] = position
         all = dict
     }
+
+    /// Drop the local resume point (Remove from Continue Watching).
+    static func clear(path: String) {
+        var dict = all
+        dict.removeValue(forKey: path)
+        all = dict
+    }
 }

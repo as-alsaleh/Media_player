@@ -81,6 +81,8 @@ pub struct PlexEpisode {
     pub watched: bool,
     pub last_viewed_at: Option<u64>,
     pub duration_secs: Option<f64>,
+    /// When this episode landed in the library — drives Recently Added.
+    pub added_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -484,6 +486,25 @@ impl PlexSource {
             .unwrap_or(false)
     }
 
+    /// Drop the item from Continue Watching without marking it watched.
+    /// Modern servers have a dedicated action; older ones at least clear the
+    /// resume point via an unscrobble (which also resets viewOffset).
+    pub async fn clear_progress(&self, rating_key: &str) -> bool {
+        let path = format!("/actions/removeFromContinueWatching?ratingKey={rating_key}");
+        let dedicated = self
+            .client
+            .put(self.url(&path))
+            .header("X-Plex-Client-Identifier", "dev.mediaplayer.app")
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false);
+        if dedicated {
+            return true;
+        }
+        self.set_watched(rating_key, false).await
+    }
+
     /// Report playback progress back to the server so watch state stays in
     /// sync with other Plex clients. `state` is "playing", "paused", "stopped".
     pub async fn report_progress(
@@ -715,6 +736,7 @@ impl PlexSource {
                     watched: item.watched(),
                     last_viewed_at: item.last_viewed_at,
                     duration_secs: item.duration_secs(),
+                    added_at: item.added_at,
                 });
             }
         }

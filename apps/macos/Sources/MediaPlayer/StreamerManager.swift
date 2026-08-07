@@ -222,6 +222,7 @@ final class StreamerManager: ObservableObject {
         let last_viewed_at: UInt64?
         let duration_secs: Double?
         let show_tmdb_id: UInt64?
+        let added_at: UInt64?
         var id: String { uid }
     }
 
@@ -434,6 +435,36 @@ final class StreamerManager: ObservableObject {
             URLQueryItem(name: "item_id", value: itemId),
             URLQueryItem(name: "rating", value: String(rating)),
         ])
+    }
+
+    /// Remove an item from Continue Watching on whichever server owns it,
+    /// plus the local resume point. Keyed by progress_key ("plex:…"/"jf:…").
+    func clearProgress(progressKey: String) {
+        WatchProgress.clear(path: progressKey)
+        if progressKey.hasPrefix("plex:") {
+            fireAndForget("plex/clear_progress", [
+                URLQueryItem(name: "rating_key",
+                             value: String(progressKey.dropFirst("plex:".count))),
+            ])
+        } else if progressKey.hasPrefix("jf:") {
+            fireAndForget("jellyfin/clear_progress", [
+                URLQueryItem(name: "item_id",
+                             value: String(progressKey.dropFirst("jf:".count))),
+            ])
+        }
+    }
+
+    /// Watched toggle routed by progress_key prefix; also clears the local
+    /// resume point when marking watched.
+    func setWatched(progressKey: String, watched: Bool) {
+        if watched { WatchProgress.clear(path: progressKey) }
+        if progressKey.hasPrefix("plex:") {
+            plexSetWatched(ratingKey: String(progressKey.dropFirst("plex:".count)),
+                           watched: watched)
+        } else if progressKey.hasPrefix("jf:") {
+            jellyfinSetWatched(itemId: String(progressKey.dropFirst("jf:".count)),
+                               watched: watched)
+        }
     }
 
     func plexSetWatched(ratingKey: String, watched: Bool) {

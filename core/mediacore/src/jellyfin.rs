@@ -66,6 +66,7 @@ pub struct JfEpisode {
     pub watched: bool,
     pub last_viewed_at: Option<u64>,
     pub duration_secs: Option<f64>,
+    pub added_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -377,7 +378,7 @@ impl JellyfinSource {
     }
 
     pub async fn episodes(&self) -> Vec<JfEpisode> {
-        self.items("IncludeItemTypes=Episode&Recursive=true&Fields=Overview,Path")
+        self.items("IncludeItemTypes=Episode&Recursive=true&Fields=Overview,Path,DateCreated")
             .await
             .into_iter()
             .map(|i| {
@@ -397,6 +398,7 @@ impl JellyfinSource {
                     watched: ud.played.unwrap_or(false),
                     last_viewed_at: iso_to_epoch(&ud.last_played),
                     duration_secs: i.runtime_ticks.map(|t| t as f64 / 1e7),
+                    added_at: iso_to_epoch(&i.date_created),
                     id: i.id,
                 }
             })
