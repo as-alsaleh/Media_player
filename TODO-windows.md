@@ -1,8 +1,11 @@
 # Windows port — working plan
 
-Decisions already made (see TODO.md): **separate repo** (`Media_player-windows`),
-UI-only, consuming a **prebuilt `mediacored.exe`** released from this repo.
-No GPL code may be copied in (JMP/FluentFin/Plezy are reference-only).
+Decisions already made (see TODO.md): **separate repo**, UI-only, consuming a
+**prebuilt `mediacored.exe`** released from this repo. No GPL code may be
+copied in (JMP/FluentFin/Plezy are reference-only).
+
+The repo now exists: **[windows_media_player](https://github.com/as-alsaleh/windows_media_player)**
+(MIT, Avalonia/.NET 10). Milestones 0–3 are done; 4–5 remain.
 
 The engine does all the hard work already — Plex/Jellyfin/SMB, library merge,
 watch state, downloads, trickplay, ratings — over localhost HTTP. The Windows
@@ -55,10 +58,14 @@ app is "a window with mpv in it + the UI" talking to `http://127.0.0.1:{port}`.
 - [x] mpv wired per MPVPlayer.swift (MpvPlayer.cs): full option block with
   the three platform swaps (HWND wid, d3d11, d3d11va), all six property
   observers, transient-error retry, track/chapter/subtitle plumbing.
-- [ ] Definition of done: window opens ✓, engine list loads ✓; **playing a
-  real URL + hwdec-current=d3d11va still unverified** — needs the user's
-  Plex/Jellyfin/SMB source configured in
-  `%LOCALAPPDATA%\MediaPlayer\settings.json` (no onboarding UI yet).
+- [x] **Definition of done met** (2026-08-12): plays a direct URL from
+  `/library/movies`, seek + pause work, and `hwdec-current=d3d11va` with
+  gpu-next on the d3d11 backend (verified on an RTX 5070, feature level
+  12_1). `MediaPlayer.Windows.exe <url>` is the headless test hook.
+- Note: mpv's native child HWND paints over all Avalonia content and `wid`
+  can't be rebound, so the host lives in the tree permanently (row collapsed
+  to zero while browsing) and the transport controls are a separate owned
+  window tracking the main window.
 
 ## Milestone 2 — engine lifecycle — DONE 2026-08-12
 
@@ -68,24 +75,25 @@ app is "a window with mpv in it + the UI" talking to `http://127.0.0.1:{port}`.
   `%LOCALAPPDATA%\MediaPlayer\` for db.
 - [x] Credentials: DPAPI-protected fields in settings.json (Settings.cs).
 
-## Milestone 3 — the UI (the real work, ~4,400 lines of SwiftUI to re-imagine)
+## Milestone 3 — the UI — DONE 2026-08-12
 
-Build in this order, hitting the same endpoints the Mac app uses:
-- [ ] Onboarding: Sign in with Plex (`/plex/pin/*` routes do the whole PIN
-  flow — open the returned URL in the browser, poll), Jellyfin
-  (`/jellyfin/users`, `/jellyfin/login`), or SMB form.
-- [ ] Home: hero carousel + Continue Watching + Recently Added rows
-  (`/library/movies`, `/library/shows`, `/library/episodes` — sort/group
-  client-side exactly like BrowseView.swift does).
-- [ ] Movies / TV Shows grids + search.
-- [ ] Detail sheets: backdrop, ratings badges (`critic_rating`,
-  `audience_rating`), season pills, episode stills, watched/star controls
-  (`/plex/watched`, `/plex/rate`, `/jellyfin/*`).
-- [ ] Player overlay: timeline with hover seek-preview (`/plex/preview`
-  trickplay tiles), skip-intro button (`/plex/markers`), external subtitles
-  (`/plex/subtitles` → `sub-add`), settings popover (tracks/speed/subs).
-- [ ] Downloads: `/downloads/start|list|delete`, play local files.
-- [ ] Settings: the five sections, mirroring SettingsView.swift.
+Live-verified against the user's Plex server on the Kids profile: 24 movies,
+7 shows, 847 episodes, 7 hero slides, 7 Continue Watching, 15 Recently Added.
+- [x] Onboarding: Plex PIN flow (browser + poll), Jellyfin user tiles, SMB form.
+- [x] Home: hero slideshow (7s auto-advance, dots, edge chevrons), Continue
+  Watching, Recently Added, Movies and TV Shows carousels.
+- [x] Movies / TV Shows grids + search.
+- [x] Detail sheets: backdrops, rating badges, resume bars, star ratings,
+  watched toggles, season pills, episode rows with stills and synopses.
+- [x] Player overlay: timeline, skip-intro from `/plex/markers`, external
+  subtitles via `sub-add`, track pickers, speed/volume/sub-scale/sync
+  popover, next-episode chaining. *Trickplay seek-preview (`/plex/preview`)
+  is the one piece not yet built.*
+- [x] Downloads: `/downloads/start|list|delete`, play from disk.
+- [x] Settings: playback, languages, Plex, Jellyfin, SMB, metadata keys.
+- [x] Extras beyond the plan: SMB file browser (BrowserView port), Plex Home
+  profile switching with PIN prompts, and restricted-profile gating that
+  hides Files/Downloads for Kids profiles.
 
 ## Milestone 4 — Windows-specific hardening
 
