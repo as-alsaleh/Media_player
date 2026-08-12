@@ -5,7 +5,14 @@ Decisions already made (see TODO.md): **separate repo**, UI-only, consuming a
 copied in (JMP/FluentFin/Plezy are reference-only).
 
 The repo now exists: **[windows_media_player](https://github.com/as-alsaleh/windows_media_player)**
-(MIT, Avalonia/.NET 10). Milestones 0–3 are done; 4–5 remain.
+(MIT, Avalonia/.NET 10) and ships releases:
+
+    wget https://github.com/as-alsaleh/windows_media_player/releases/latest/download/mediaplayer-windows-x64.zip
+
+Milestones 0–4 are done and 5 is shipping. What's left needs hardware or
+server configuration rather than code: HDR passthrough on a display with
+Windows HDR enabled, and seek previews (Plex must have "Generate video
+preview thumbnails" on). An installer and code signing remain optional.
 
 The engine does all the hard work already — Plex/Jellyfin/SMB, library merge,
 watch state, downloads, trickplay, ratings — over localhost HTTP. The Windows
@@ -95,22 +102,37 @@ Live-verified against the user's Plex server on the Kids profile: 24 movies,
   profile switching with PIN prompts, and restricted-profile gating that
   hides Files/Downloads for Kids profiles.
 
-## Milestone 4 — Windows-specific hardening
+## Milestone 4 — Windows-specific hardening — mostly done 2026-08-12
 
-- [ ] HDR passthrough: needs Windows HDR mode on + `d3d11` swapchain in
-  HDR; `target-colorspace-hint=yes` mostly works on recent mpv — test on a
-  real HDR display, expect edge cases (JMP's issue tracker is a good map of
-  what goes wrong — read, don't copy).
-- [ ] Multi-monitor DPI, fullscreen behavior, media keys
-  (`SystemMediaTransportControls` for play/pause from keyboard).
+- [x] HDR handled adaptively. `target-colorspace-hint=yes` was wrong as a
+  constant: it hands a PQ signal to SDR displays too. It now defaults to
+  `auto` (passthrough only when Windows HDR is actually on) with a Settings
+  override, and `hdr-compute-peak` is skipped when passing through since
+  its only consumer is tone mapping. A `HdrStatus` DisplayConfig probe
+  reports supported/enabled/bit-depth, re-queried per load because
+  Win+Alt+B can flip it mid-session.
+  *Passthrough itself is still unverified on real hardware* — the test
+  machine's display reports HDR-capable but has HDR switched off, so only
+  the tone-mapping and forced-passthrough paths have been exercised.
+- [x] Media keys via `RegisterHotKey` + a WndProc hook. (`SystemMediaTransportControls`
+  would also give the OS media flyout, but needs a WinRT TFM — worth
+  revisiting if the flyout is wanted.)
+- [x] Per-monitor DPI v2 declared in the app manifest; fullscreen verified.
 
-## Milestone 5 — packaging
+## Milestone 5 — packaging — shipping 2026-08-12
 
-- [ ] Inno Setup installer (simplest) bundling exe + mpv-2.dll +
-  mediacored.exe + LGPL license texts. MSIX later if Store distribution
-  (Store registration is free now).
-- [ ] Authenticode signing (~$120–230/yr) can wait — unsigned means a
-  SmartScreen warning, acceptable during development.
+- [x] **Releases are live**: `scripts/bundle.ps1` publishes a self-contained
+  zip (no .NET/mpv/Rust needed on the target) with the third-party license
+  texts and a SHA256; CI runs it on a `v*` tag and attaches it to a GitHub
+  Release. Verified by downloading the published artifact and checking the
+  hash. v0.1.0 and v0.1.1 are out.
+  - While this repo is private, the Windows repo vendors a prebuilt
+    `mediacored.exe`; the workflow switches to building it from source as
+    soon as a `CORE_REPO_TOKEN` secret exists or this repo goes public.
+- [ ] Inno Setup installer — optional now that the zip is self-contained;
+  worth it for Start-menu entries and file associations.
+- [ ] Authenticode signing (~$120–230/yr). Unsigned means a SmartScreen
+  warning; each release publishes a checksum in the meantime.
 
 ## What NOT to do
 
