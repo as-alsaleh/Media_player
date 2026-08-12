@@ -52,6 +52,9 @@ pub struct PlexUser {
     pub uuid: String,
     pub title: String,
     pub protected: bool,
+    /// Avatar URL. plex.tv serves these unauthenticated, so clients can use
+    /// them directly.
+    pub thumb: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -541,6 +544,7 @@ impl PlexSource {
             uuid: String,
             title: String,
             protected: bool,
+            thumb: Option<String>,
         }
         let Ok(resp) = self
             .client
@@ -560,7 +564,15 @@ impl PlexSource {
             .map(|u| {
                 u.users
                     .into_iter()
-                    .map(|u| PlexUser { uuid: u.uuid, title: u.title, protected: u.protected })
+                    .map(|u| PlexUser {
+                        uuid: u.uuid,
+                        title: u.title,
+                        protected: u.protected,
+                        // Plex sends an empty string for users without an
+                        // avatar; treat that as absent so clients can fall
+                        // back to an initial.
+                        thumb: u.thumb.filter(|t| !t.is_empty()),
+                    })
                     .collect()
             })
             .unwrap_or_default()
