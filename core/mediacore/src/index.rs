@@ -101,6 +101,7 @@ impl Index {
     ) -> Result<(usize, usize), crate::smb::SmbError> {
         let mut movies = 0usize;
         let mut episodes = 0usize;
+        let mut seen: Vec<String> = Vec::new();
 
         for file in walk(fs, movies_root, 2).await? {
             let stem = stem(&file.0);
@@ -112,6 +113,7 @@ impl Index {
                 rusqlite::params![parsed.title, parsed.year, file.0, file.1 as i64],
             )
             .ok();
+            seen.push(file.0.clone());
             movies += 1;
         }
 
@@ -126,10 +128,61 @@ impl Index {
                     rusqlite::params![ep.show, ep.season, ep.episode, file.0, file.1 as i64],
                 )
                 .ok();
+                seen.push(file.0.clone());
                 episodes += 1;
             }
         }
+
+        self.sweep_missing(&seen);
         Ok((movies, episodes))
+    }
+
+    /// Drop rows for files the scan no longer found.
+    ///
+    /// Scanning only ever inserted, so a file deleted from the share stayed
+    /// in the library for good — visible, clickable, and failing on play.
+    /// Renaming was worse: the old path stayed *and* the new one was added,
+    /// so every reorganisation doubled the entries.
+    ///
+    /// Rows only ever enter through `scan`, so anything not seen by a
+    /// completed scan is genuinely gone. The exception is a scan that found
+    /// nothing at all: a share that answers with an empty listing is far more
+    /// likely to be a mount that has gone away than a library someone
+    /// actually emptied, and treating those the same would erase the index at
+    /// the worst possible moment. Returns how many rows were removed.
+    fn sweep_missing(&self, seen: &[String]) -> usize {
+        if seen.is_empty() {
+            return 0;
+        }
+
+        let conn = self.conn.lock().unwrap();
+        if conn
+            .execute_batch(
+                "CREATE TEMP TABLE IF NOT EXISTS seen_paths (path TEXT PRIMARY KEY);
+                 DELETE FROM seen_paths;",
+            )
+            .is_err()
+        {
+            return 0;
+        }
+
+        {
+            let Ok(mut stmt) = conn.prepare("INSERT OR IGNORE INTO seen_paths (path) VALUES (?1)")
+            else {
+                return 0;
+            };
+            for path in seen {
+                stmt.execute(rusqlite::params![path]).ok();
+            }
+        }
+
+        let movies = conn
+            .execute("DELETE FROM movies WHERE path NOT IN (SELECT path FROM seen_paths)", [])
+            .unwrap_or(0);
+        let episodes = conn
+            .execute("DELETE FROM episodes WHERE path NOT IN (SELECT path FROM seen_paths)", [])
+            .unwrap_or(0);
+        movies + episodes
     }
 
     pub fn movies(&self) -> rusqlite::Result<Vec<MovieRow>> {
@@ -341,6 +394,55 @@ mod tests {
         assert!(is_video("b.mp4"));
         assert!(!is_video("c.srt"));
         assert!(!is_video("noext"));
+    }
+
+    #[test]
+    fn sweep_drops_files_that_are_gone() {
+        let (idx, path) = temp_index("sweep");
+        idx.insert_movie_for_test("Heat", Some(1995), "movies/heat.mkv", 100);
+        idx.insert_movie_for_test("Alien", Some(1979), "movies/alien.mkv", 100);
+        idx.insert_episode_for_test("Show", 1, 1, "tv/show/s01e01.mkv");
+
+        // A scan that found heat and the episode, but not alien.
+        let removed = idx.sweep_missing(&[
+            "movies/heat.mkv".to_string(),
+            "tv/show/s01e01.mkv".to_string(),
+        ]);
+
+        assert_eq!(removed, 1);
+        let titles: Vec<String> = idx.movies().unwrap().into_iter().map(|m| m.title).collect();
+        assert_eq!(titles, vec!["Heat".to_string()]);
+        assert_eq!(idx.episodes().unwrap().len(), 1);
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// A share that answers with nothing is far likelier to be a mount that
+    /// has gone away than a library somebody emptied, and wiping the index on
+    /// that would be the worst possible response.
+    #[test]
+    fn sweep_keeps_everything_when_the_scan_found_nothing() {
+        let (idx, path) = temp_index("sweep-empty");
+        idx.insert_movie_for_test("Heat", Some(1995), "movies/heat.mkv", 100);
+
+        assert_eq!(idx.sweep_missing(&[]), 0);
+        assert_eq!(idx.movies().unwrap().len(), 1);
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// Renaming a file used to leave the old row behind and add a new one, so
+    /// every reorganisation doubled the library.
+    #[test]
+    fn renaming_does_not_leave_a_phantom() {
+        let (idx, path) = temp_index("sweep-rename");
+        idx.insert_movie_for_test("Heat", Some(1995), "movies/heat.mkv", 100);
+        idx.insert_movie_for_test("Heat", Some(1995), "movies/Heat (1995).mkv", 100);
+
+        idx.sweep_missing(&["movies/Heat (1995).mkv".to_string()]);
+
+        let rows = idx.movies().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].path, "movies/Heat (1995).mkv");
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]
